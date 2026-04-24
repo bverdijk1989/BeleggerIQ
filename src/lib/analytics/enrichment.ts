@@ -2,6 +2,7 @@ import { getFxRate } from "@/lib/data/fx";
 import { getFundamentals } from "@/lib/data/fundamentals";
 import { getHistory } from "@/lib/data/history";
 import { getQuotes } from "@/lib/data/quotes";
+import { resolveYahooSymbols } from "@/lib/data/symbol-resolver";
 import { log } from "@/lib/log";
 import type { Currency, ISODateString } from "@/types/common";
 import type {
@@ -74,11 +75,23 @@ export async function enrichHoldings(
   const wantFundamentals =
     options.includeFundamentals === true || options.includeFactorScores === true;
 
+  // Resolve user-facing tickers naar Yahoo-symbolen (via ISIN wanneer
+  // mogelijk). DEGIRO-imports hebben vaak namen als "VANGUARD" i.p.v.
+  // "VUSA.AS"; zonder deze stap faalt elke Yahoo-fetch. No-op voor stub/none.
+  const uniqueHoldings = dedupeByTicker(holdings);
+  const symbolMap = await resolveYahooSymbols(
+    uniqueHoldings.map((h) => ({ ticker: h.ticker, isin: h.isin })),
+  );
+  const resolvedTickers = Array.from(
+    new Set(tickers.map((t) => symbolMap.get(t) ?? t)),
+  );
+
   // Fetch alles parallel; elk deel heeft zijn eigen try/catch zodat één
-  // falende bron de rest niet meetrekt.
+  // falende bron de rest niet meetrekt. We fetchen op resolved symbol en
+  // mappen responses daarna terug op de originele ticker.
   const [quoteList, fxEntries, fundamentalsEntries, historyEntries] =
     await Promise.all([
-      safeQuotes(tickers),
+      safeQuotes(resolvedTickers),
       Promise.all(
         currencies.map(async (currency): Promise<[Currency, number]> => {
           if (currency === options.baseCurrency) return [currency, 1];
@@ -98,7 +111,7 @@ export async function enrichHoldings(
                 ticker,
               ): Promise<[string, FundamentalsSnapshot | null]> => [
                 ticker,
-                await safeFundamentals(ticker),
+                await safeFundamentals(symbolMap.get(ticker) ?? ticker),
               ],
             ),
           )
@@ -110,14 +123,26 @@ export async function enrichHoldings(
             tickers.map(
               async (ticker): Promise<[string, HistoricalPoint[]]> => [
                 ticker,
-                await safeHistoryWindow(ticker),
+                await safeHistoryWindow(symbolMap.get(ticker) ?? ticker),
               ],
             ),
           )
         : Promise.resolve([] as Array<[string, HistoricalPoint[]]>),
     ]);
 
-  const quotes = new Map(quoteList.map((q) => [q.ticker, q]));
+  // Index quotes op resolved symbol zodat we ze per originele ticker kunnen
+  // opzoeken via `symbolMap`.
+  const quotesByResolved = new Map(quoteList.map((q) => [q.ticker, q]));
+  const quotes = new Map<string, import("@/types/market").Quote>();
+  for (const original of tickers) {
+    const resolved = symbolMap.get(original) ?? original;
+    const q = quotesByResolved.get(resolved);
+    if (q) {
+      // Normaliseer terug naar de user-facing ticker voor UI consistency.
+      quotes.set(original, { ...q, ticker: original });
+    }
+  }
+
   const fxRates = new Map<Currency, number>(fxEntries);
   const fundamentals = new Map<string, FundamentalsSnapshot>(
     fundamentalsEntries
@@ -167,6 +192,22 @@ export async function enrichHoldings(
     factorScores,
     asOf,
   };
+}
+
+function dedupeByTicker(
+  holdings: Holding[],
+): Array<{ ticker: string; isin: string | null }> {
+  const seen = new Map<string, { ticker: string; isin: string | null }>();
+  for (const h of holdings) {
+    if (!seen.has(h.ticker)) {
+      seen.set(h.ticker, { ticker: h.ticker, isin: h.isin ?? null });
+    } else {
+      // Als een tweede rij met dezelfde ticker WEL een ISIN heeft, verrijk.
+      const existing = seen.get(h.ticker)!;
+      if (!existing.isin && h.isin) existing.isin = h.isin;
+    }
+  }
+  return Array.from(seen.values());
 }
 
 function pickPrice(
