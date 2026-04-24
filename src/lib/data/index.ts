@@ -1,0 +1,29 @@
+// Server-side data layer. Bundelt persistence (Prisma) én market data.
+// Niets in deze laag mag client-side worden geïmporteerd.
+
+export { prisma } from "./prisma";
+export { portfolioRepository } from "./portfolio-repository";
+export {
+  strategyPresetRepository,
+  presetToCustomConfig,
+  type StrategyPresetRow,
+  type SavePresetInput,
+} from "./strategy-preset-repository";
+export {
+  portfolioSnapshotRepository,
+  factorSnapshotRepository,
+  type PortfolioSnapshotRow,
+  type FactorSnapshotRow,
+} from "./snapshot-repository";
+
+// Market data
+export { marketDataCache, buildCacheKey, TtlCache } from "./cache";
+export { getQuote, getQuotes } from "./quotes";
+export { getFxRate, convertAmount } from "./fx";
+export { getFundamentals } from "./fundamentals";
+export { getHistory, type HistoryQuery } from "./history";
+export { fetchRegimeInputs, type RegimeFetchResult } from "./regime";
+export {
+  getMarketDataProvider,
+  type MarketDataProvider,
+} from "./providers";

@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Deze :root waarden zijn de light-fallback. De app forceert dark via <html class="dark"> */
+    --background: 220 30% 98%;
+    --foreground: 220 20% 12%;
+    --surface: 0 0% 100%;
+    --surface-muted: 220 20% 96%;
+    --surface-elevated: 220 20% 94%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 12%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 212 90% 55%;
+    --primary: 212 90% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 20% 94%;
+    --secondary-foreground: 220 20% 20%;
+    --muted: 220 20% 94%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 212 90% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 68% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 36 45% 15%;
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    /* Premium dark: rustig, zakelijk, iets richting nachtblauw */
+    --background: 222 40% 6%;
+    --foreground: 210 25% 96%;
+    --surface: 222 32% 9%;
+    --surface-muted: 222 28% 11%;
+    --surface-elevated: 222 24% 14%;
+    --card: 222 32% 10%;
+    --card-foreground: 210 25% 96%;
+    --border: 222 20% 18%;
+    --input: 222 20% 18%;
+    --ring: 198 95% 58%;
+    --primary: 198 95% 58%;
+    --primary-foreground: 222 40% 8%;
+    --secondary: 222 24% 16%;
+    --secondary-foreground: 210 25% 92%;
+    --muted: 222 22% 14%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 198 95% 58%;
+    --accent-foreground: 222 40% 8%;
+    --destructive: 0 75% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 65% 48%;
+    --success-foreground: 152 40% 8%;
+    --warning: 38 94% 58%;
+    --warning-foreground: 36 45% 10%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image:
+      radial-gradient(1200px 600px at 10% -10%, hsl(198 95% 58% / 0.06), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, hsl(260 80% 60% / 0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

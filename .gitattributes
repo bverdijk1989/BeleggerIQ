@@ -1,0 +1,15 @@
+# Default: auto-detect en normaliseer naar LF in de repo.
+* text=auto eol=lf
+
+# Shell scripts MOETEN LF hebben, anders breken ze op Linux.
+*.sh text eol=lf
+deploy/**/*.service text eol=lf
+
+# Binaire assets: laat git met rust.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,39 @@
+# BeleggerIQ 2.0 — systemd unit
+#
+# Installatie:
+#   sudo cp deploy/beleggeriq.service /etc/systemd/system/beleggeriq.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now beleggeriq
+#
+# Logs:      journalctl -u beleggeriq -f
+# Restart:   sudo systemctl restart beleggeriq
+
+[Unit]
+Description=BeleggerIQ 2.0 (Next.js)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=beleggeriq
+Group=beleggeriq
+WorkingDirectory=/var/www/beleggeriq/current
+EnvironmentFile=/var/www/beleggeriq/shared/.env.production
+ExecStart=/usr/bin/node /var/www/beleggeriq/current/node_modules/.bin/next start -p 3000
+Restart=always
+RestartSec=5
+# Harden
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/beleggeriq /tmp
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# Next.js logs gaan naar stdout/stderr → journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

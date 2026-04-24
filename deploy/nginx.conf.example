@@ -1,0 +1,72 @@
+# BeleggerIQ 2.0 — nginx reverse proxy
+#
+# Installatie:
+#   1. Vervang BELEGGERIQ_DOMAIN door je subdomain (bv. beleggeriq.mijndomein.nl).
+#   2. Kopieer naar /etc/nginx/sites-available/beleggeriq.conf
+#   3. ln -s /etc/nginx/sites-available/beleggeriq.conf /etc/nginx/sites-enabled/
+#   4. nginx -t && systemctl reload nginx
+#   5. SSL via:  certbot --nginx -d BELEGGERIQ_DOMAIN
+
+# HTTP → forceer HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name BELEGGERIQ_DOMAIN;
+
+    # Let's Encrypt ACME challenge blijft bereikbaar
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS → Next.js op 127.0.0.1:3000
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name BELEGGERIQ_DOMAIN;
+
+    # SSL-config wordt door certbot ingevuld als je de certbot-plugin draait.
+    # ssl_certificate     /etc/letsencrypt/live/BELEGGERIQ_DOMAIN/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/BELEGGERIQ_DOMAIN/privkey.pem;
+
+    # Standaard security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # BeleggerIQ gebruikt inline styles via Tailwind + client fetch naar zichzelf;
+    # Loosen indien derde partijen nodig zijn.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:;" always;
+
+    # Max upload size voor DEGIRO CSV-imports (client-side already caps at 5MB).
+    client_max_body_size 6M;
+
+    # Next.js server
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+
+        # Timeouts afgestemd op onze provider-timeouts (max 12s history).
+        proxy_connect_timeout   10s;
+        proxy_send_timeout      30s;
+        proxy_read_timeout      30s;
+    }
+
+    # Next.js static assets krijgen een lange cache-header
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_cache_valid 200 365d;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}

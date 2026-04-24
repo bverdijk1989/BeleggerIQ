@@ -1,0 +1,416 @@
+// BeleggerIQ 2.0 - Prisma schema
+// PostgreSQL-ready. Ontworpen voor portfolio-analyse, factor scoring,
+// risicoanalyse, market regime tracking, strategy presets en backtests.
+//
+// Conventies:
+//  - Alle primaire keys zijn cuid (stringbar + DB-agnostisch).
+//  - Alle monetaire waarden en ratio's zijn Decimal met vaste schaal.
+//  - Tijdreeksen hebben een index op (resourceId, capturedAt).
+//  - Json-kolommen worden gebruikt voor flexibele payloads die niet
+//    query-ed hoeven te worden (goals, preferences, factorWeights, curves).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+//  USER + PROFIEL
+// ============================================================
+
+/// Centrale gebruiker van de app. Eén user kan meerdere portefeuilles,
+/// watchlist items, strategy presets en backtest-runs bezitten.
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  name            String?
+  image           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  profile         UserProfile?
+  portfolios      Portfolio[]
+  watchlistItems  WatchlistItem[]
+  strategyPresets StrategyPreset[]
+  backtestRuns    BacktestRun[]
+
+  @@index([email])
+}
+
+/// Beleggersprofiel: horizon, doelen, risicobereidheid en policy.
+/// Policy/goals/preferences zijn Json zodat productdefinities niet per
+/// wijziging een migratie vragen. Hardgekoppelde velden zoals horizon en
+/// contribution blijven typed voor query-performance.
+model UserProfile {
+  id                    String               @id @default(cuid())
+  userId                String               @unique
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  investorType          InvestorType         @default(LONG_TERM)
+  objective             InvestmentObjective  @default(BALANCED)
+  riskTolerance         RiskTolerance        @default(BALANCED)
+  investmentHorizonYrs  Int                  @default(10)
+  monthlyContribution   Decimal?             @db.Decimal(14, 2)
+  baseCurrency          String               @default("EUR")
+  taxResidency          String               @default("NL")
+
+  goals                 Json?
+  preferences           Json?
+  /// Gestructureerde PolicySettings (zie src/types/profile.ts).
+  policy                Json?
+
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+}
+
+// ============================================================
+//  PORTFOLIO + HOLDINGS
+// ============================================================
+
+/// Portefeuille: container voor posities, snapshots en backtest-runs.
+/// `isPrimary` markeert de standaardportefeuille van een user.
+model Portfolio {
+  id            String              @id @default(cuid())
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  baseCurrency  String              @default("EUR")
+  isPrimary     Boolean             @default(false)
+
+  holdings      Holding[]
+  snapshots    PortfolioSnapshot[]
+  backtestRuns BacktestRun[]
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([userId, isPrimary])
+}
+
+/// Enkele positie in een portefeuille.
+/// Unique(portfolioId, ticker) voorkomt duplicaten; broker-imports mergen op dit paar.
+/// De "enrichment" velden (beta, volatility, scores) zijn optionele caches vanuit de
+/// analytics engines — authoritative data zit in FactorSnapshot en PortfolioSnapshot.
+model Holding {
+  id              String     @id @default(cuid())
+  portfolioId     String
+  portfolio       Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  ticker          String
+  isin            String?
+  name            String
+  assetClass      AssetClass @default(EQUITY)
+  currency        String     @default("EUR")
+
+  quantity        Decimal    @db.Decimal(20, 8)
+  avgCostPrice    Decimal    @db.Decimal(20, 8)
+  currentPrice    Decimal?   @db.Decimal(20, 8)
+
+  sector          String?
+  region          String?
+
+  // --- Enrichment cache ---
+  beta            Decimal?   @db.Decimal(10, 4)
+  volatility      Decimal?   @db.Decimal(10, 6)
+  moatLikeScore   Decimal?   @db.Decimal(5, 4)
+  targetWeight    Decimal?   @db.Decimal(5, 4)
+  convictionScore Decimal?   @db.Decimal(5, 4)
+
+  metadata        Json?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([portfolioId, ticker])
+  @@index([portfolioId])
+  @@index([ticker])
+  @@index([isin])
+}
+
+// ============================================================
+//  SNAPSHOTS (TIJDREEKSEN)
+// ============================================================
+
+/// Tijdreeks-snapshot van een portefeuille voor performance- en risk analytics.
+/// Denormaliseert enkele headline-velden (value, cost, cash) voor snelle queries;
+/// rijkere metrics gaan in `metrics` als Json.
+model PortfolioSnapshot {
+  id           String       @id @default(cuid())
+  portfolioId  String
+  portfolio    Portfolio    @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  capturedAt   DateTime     @default(now())
+  totalValue   Decimal      @db.Decimal(20, 2)
+  totalCost    Decimal      @db.Decimal(20, 2)
+  cashBalance  Decimal      @default(0) @db.Decimal(20, 2)
+
+  unrealizedPnl    Decimal? @db.Decimal(20, 2)
+  unrealizedPnlPct Decimal? @db.Decimal(10, 6)
+  volatility       Decimal? @db.Decimal(10, 6)
+  drawdown         Decimal? @db.Decimal(10, 6)
+
+  regimeLabel  RegimeLabel?
+  healthGrade  HealthGrade?
+  healthScore  Decimal?     @db.Decimal(5, 2)
+
+  /// Rijkere, flexibele metrics (exposure, factor alignment, etc).
+  metrics      Json?
+
+  @@index([portfolioId, capturedAt])
+}
+
+/// Markt-brede snapshot: regime, volatility, rente, inflatie en breadth.
+/// Onafhankelijk van een user — wordt per run van de regime-engine geschreven.
+model MarketSnapshot {
+  id               String      @id @default(cuid())
+  capturedAt       DateTime    @default(now())
+
+  regimeLabel      RegimeLabel @default(UNKNOWN)
+  regimeConfidence Decimal?    @db.Decimal(5, 4)
+  volatilityIndex  Decimal?    @db.Decimal(10, 4)
+  interestRate10y  Decimal?    @db.Decimal(6, 4)
+  inflationYoy     Decimal?    @db.Decimal(6, 4)
+  breadthScore     Decimal?    @db.Decimal(5, 4)
+
+  /// Array van indicator-objecten (zie MarketRegimeIndicator type).
+  indicators       Json?
+  narrative        String?
+  source           String?
+
+  @@index([capturedAt])
+  @@index([regimeLabel, capturedAt])
+}
+
+/// Per-ticker factor snapshot. `model` onderscheidt meerdere scorende
+/// engines (bv. "default", "experimental"). Unique per (ticker, capturedAt, model)
+/// maakt een run idempotent.
+model FactorSnapshot {
+  id             String    @id @default(cuid())
+  ticker         String
+  isin           String?
+  capturedAt     DateTime  @default(now())
+  model          String    @default("default")
+
+  valueScore     Decimal?  @db.Decimal(6, 4)
+  qualityScore   Decimal?  @db.Decimal(6, 4)
+  momentumScore  Decimal?  @db.Decimal(6, 4)
+  lowVolScore    Decimal?  @db.Decimal(6, 4)
+  growthScore    Decimal?  @db.Decimal(6, 4)
+  dividendScore  Decimal?  @db.Decimal(6, 4)
+  sizeScore      Decimal?  @db.Decimal(6, 4)
+
+  composite      Decimal?  @db.Decimal(6, 4)
+  percentile     Decimal?  @db.Decimal(5, 4)
+  confidence     Decimal?  @db.Decimal(5, 4)
+
+  /// Gedenormaliseerde fundamentals (FundamentalsSnapshot shape) voor audit.
+  fundamentals   Json?
+  source         String?
+
+  @@unique([ticker, capturedAt, model])
+  @@index([ticker, capturedAt])
+  @@index([capturedAt])
+}
+
+// ============================================================
+//  STRATEGIE + BACKTEST
+// ============================================================
+
+/// Herbruikbare strategy preset. Publieke presets hebben `ownerId = null`
+/// en `isPublic = true`; privé presets horen bij een user.
+model StrategyPreset {
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  name               String
+  description        String
+  type               StrategyType        @default(FACTOR)
+  tags               String[]            @default([])
+  isPublic           Boolean             @default(false)
+
+  ownerId            String?
+  owner              User?               @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  rebalance          RebalanceFrequency  @default(MONTHLY)
+  maxPositions       Int?
+  maxPositionWeight  Decimal?            @db.Decimal(5, 4)
+  minMarketCap       Decimal?            @db.Decimal(20, 2)
+
+  /// FactorWeights object.
+  factorWeights      Json
+  /// Vrij filterobject voor de screener.
+  universeFilter     Json?
+
+  backtestRuns       BacktestRun[]
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([ownerId])
+  @@index([isPublic, type])
+}
+
+/// Uitvoering van een backtest. Config en rijke output (equity curve etc.)
+/// staan als Json; headline-metrics staan als Decimal voor sortering in UI.
+model BacktestRun {
+  id              String          @id @default(cuid())
+  name            String
+  status          BacktestStatus  @default(PENDING)
+
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolioId     String?
+  portfolio       Portfolio?      @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+  strategyId      String?
+  strategy        StrategyPreset? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+
+  startDate       DateTime
+  endDate         DateTime
+  initialCapital  Decimal         @db.Decimal(20, 2)
+  baseCurrency    String          @default("EUR")
+
+  // Resultaat-metrics (fracties tenzij anders aangegeven)
+  totalReturn     Decimal?        @db.Decimal(10, 6)
+  cagr            Decimal?        @db.Decimal(10, 6)
+  volatility      Decimal?        @db.Decimal(10, 6)
+  sharpe          Decimal?        @db.Decimal(10, 4)
+  sortino         Decimal?        @db.Decimal(10, 4)
+  maxDrawdown     Decimal?        @db.Decimal(10, 6)
+  calmar          Decimal?        @db.Decimal(10, 4)
+  winRate         Decimal?        @db.Decimal(5, 4)
+  turnover        Decimal?        @db.Decimal(10, 6)
+  finalValue      Decimal?        @db.Decimal(20, 2)
+  tradesCount     Int?
+
+  /// BacktestConfig (zie src/types/backtest.ts).
+  config          Json
+  /// Array van EquityPoint.
+  equityCurve     Json?
+  /// BenchmarkComparison.
+  benchmark       Json?
+  /// Array van RegimeBreakdown.
+  regimeBreakdown Json?
+  errorMessage    String?
+
+  startedAt       DateTime        @default(now())
+  completedAt     DateTime?
+
+  @@index([userId, startedAt])
+  @@index([strategyId])
+  @@index([portfolioId])
+  @@index([status])
+}
+
+// ============================================================
+//  WATCHLIST
+// ============================================================
+
+/// Observatielijst: tickers die een user volgt maar niet bezit.
+/// Unique(userId, ticker) voorkomt dubbele entries bij herhaald toevoegen.
+model WatchlistItem {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ticker      String
+  name        String?
+  note        String?
+  targetPrice Decimal? @db.Decimal(20, 8)
+
+  addedAt     DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, ticker])
+  @@index([userId, addedAt])
+  @@index([ticker])
+}
+
+// ============================================================
+//  ENUMS
+// ============================================================
+
+enum InvestorType {
+  LONG_TERM
+  INCOME
+  GROWTH
+  DIVIDEND
+  FACTOR
+  BALANCED
+}
+
+enum InvestmentObjective {
+  GROWTH
+  INCOME
+  BALANCED
+  CAPITAL_PRESERVATION
+  RETIREMENT
+  FIRE
+  CUSTOM
+}
+
+enum RiskTolerance {
+  CONSERVATIVE
+  BALANCED
+  GROWTH
+  AGGRESSIVE
+}
+
+enum AssetClass {
+  EQUITY
+  ETF
+  BOND
+  REIT
+  COMMODITY
+  CRYPTO
+  CASH
+  OTHER
+}
+
+enum RegimeLabel {
+  EXPANSION
+  SLOWDOWN
+  RECESSION
+  RECOVERY
+  UNKNOWN
+}
+
+enum StrategyType {
+  FACTOR
+  DIVIDEND
+  QUALITY
+  MOMENTUM
+  LOW_VOL
+  CORE
+  THEMATIC
+  CUSTOM
+}
+
+enum RebalanceFrequency {
+  NONE
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  ANNUAL
+}
+
+enum BacktestStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum HealthGrade {
+  A
+  B
+  C
+  D
+  F
+}
