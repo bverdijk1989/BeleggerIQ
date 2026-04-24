@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("yahoo-finance2", () => ({
-  default: {
+vi.mock("./providers/yahoo-client", () => ({
+  yahooClient: {
     search: vi.fn(),
+    quote: vi.fn(),
+    quoteSummary: vi.fn(),
+    chart: vi.fn(),
+    suppressNotices: vi.fn(),
   },
 }));
 
-import yahooFinance from "yahoo-finance2";
+import { yahooClient } from "./providers/yahoo-client";
 
 import {
   resetSymbolResolverCache,
@@ -15,7 +19,7 @@ import {
 } from "./symbol-resolver";
 
 const mockedSearch = (
-  yahooFinance as unknown as { search: ReturnType<typeof vi.fn> }
+  yahooClient as unknown as { search: ReturnType<typeof vi.fn> }
 ).search;
 
 beforeEach(() => {

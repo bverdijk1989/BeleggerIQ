@@ -1,20 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Mock yahoo-finance2 voordat het in de adapter geïmporteerd wordt.
-vi.mock("yahoo-finance2", () => ({
-  default: {
-    suppressNotices: vi.fn(),
+// Mock de shared client zodat de adapter-tests onafhankelijk zijn van de
+// echte yahoo-finance2 library. We typen de vier methodes die de adapter
+// aanraakt.
+vi.mock("./yahoo-client", () => ({
+  yahooClient: {
     quote: vi.fn(),
     quoteSummary: vi.fn(),
     chart: vi.fn(),
+    search: vi.fn(),
+    suppressNotices: vi.fn(),
   },
 }));
 
-import yahooFinance from "yahoo-finance2";
+import { yahooClient } from "./yahoo-client";
 
 import { YahooMarketDataProvider } from "./yahoo";
 
-const mocked = yahooFinance as unknown as {
+const mocked = yahooClient as unknown as {
   quote: ReturnType<typeof vi.fn>;
   quoteSummary: ReturnType<typeof vi.fn>;
   chart: ReturnType<typeof vi.fn>;
@@ -32,7 +35,7 @@ describe("YahooMarketDataProvider.getQuote", () => {
       symbol: "ASML.AS",
       regularMarketPrice: 650.5,
       regularMarketChange: -12.5,
-      regularMarketChangePercent: -1.88, // Yahoo levert als percentage
+      regularMarketChangePercent: -1.88,
       currency: "EUR",
       regularMarketDayHigh: 660,
       regularMarketDayLow: 645,
@@ -44,14 +47,14 @@ describe("YahooMarketDataProvider.getQuote", () => {
     expect(q!.ticker).toBe("ASML.AS");
     expect(q!.price).toBe(650.5);
     expect(q!.currency).toBe("EUR");
-    expect(q!.changePct).toBeCloseTo(-0.0188, 4); // fractie, niet percentage
+    expect(q!.changePct).toBeCloseTo(-0.0188, 4);
     expect(q!.source).toBe("yahoo");
   });
 
   it("converteert GBp (pence) naar GBP (pounds)", async () => {
     mocked.quote.mockResolvedValueOnce({
       symbol: "SHEL.L",
-      regularMarketPrice: 2800, // 28 pond in pence
+      regularMarketPrice: 2800,
       currency: "GBp",
     });
     const q = await provider.getQuote("SHEL.L");
@@ -93,7 +96,7 @@ describe("YahooMarketDataProvider.getRate", () => {
   });
 
   it("retourneert null bij onverwachte shape", async () => {
-    mocked.quote.mockResolvedValueOnce({ symbol: "EURUSD=X" }); // geen price
+    mocked.quote.mockResolvedValueOnce({ symbol: "EURUSD=X" });
     expect(await provider.getRate("EUR", "USD")).toBeNull();
   });
 });
@@ -104,7 +107,7 @@ describe("YahooMarketDataProvider.getQuotes", () => {
   it("filtert entries zonder prijs", async () => {
     mocked.quote.mockResolvedValueOnce([
       { symbol: "AAPL", regularMarketPrice: 170.25, currency: "USD" },
-      { symbol: "BROKEN" }, // geen price → weggefilterd
+      { symbol: "BROKEN" },
       { symbol: "MSFT", regularMarketPrice: 420.1, currency: "USD" },
     ]);
     const quotes = await provider.getQuotes(["AAPL", "BROKEN", "MSFT"]);
@@ -137,7 +140,7 @@ describe("YahooMarketDataProvider.getFundamentals", () => {
       financialData: {
         returnOnEquity: 1.5,
         grossMargins: 0.45,
-        debtToEquity: 120, // Yahoo als percentage
+        debtToEquity: 120,
       },
     });
     const f = await provider.getFundamentals("AAPL");
@@ -147,7 +150,6 @@ describe("YahooMarketDataProvider.getFundamentals", () => {
     expect(f!.pe).toBe(28.5);
     expect(f!.pb).toBe(45);
     expect(f!.grossMargin).toBe(0.45);
-    // debtToEquity wordt van % naar fractie: 120 → 1.20
     expect(f!.debtToEquity).toBeCloseTo(1.2, 5);
     expect(f!.source).toBe("yahoo");
   });
@@ -173,14 +175,8 @@ describe("YahooMarketDataProvider.getHistory", () => {
           adjclose: 104,
           volume: 1_000_000,
         },
-        {
-          date: new Date("2025-06-02"),
-          close: 106,
-        },
-        {
-          date: new Date("2025-06-03"),
-          close: NaN, // wordt weggefilterd
-        },
+        { date: new Date("2025-06-02"), close: 106 },
+        { date: new Date("2025-06-03"), close: NaN },
       ],
     });
     const points = await provider.getHistory({

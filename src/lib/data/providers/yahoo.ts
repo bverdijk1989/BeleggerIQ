@@ -1,5 +1,3 @@
-import yahooFinance from "yahoo-finance2";
-
 import { log } from "@/lib/log";
 import type { Currency } from "@/types/common";
 import type { FundamentalsSnapshot } from "@/types/factor";
@@ -12,36 +10,27 @@ import type {
 } from "@/types/market";
 
 import type { MarketDataProvider } from "./types";
+import { yahooClient } from "./yahoo-client";
 
 /**
- * Yahoo Finance adapter via de `yahoo-finance2` package.
+ * Yahoo Finance adapter via de `yahoo-finance2` package (v3).
  *
- * Voordelen: geen API-key nodig, dekt quotes/FX/fundamentals/history onder één
- * interface. Nadelen: unofficial API (rate-limits, occasional schema shifts,
- * geen SLA). Voor productie met veel traffic: verplaats naar een betaalde
- * provider (Alpha Vantage, Finnhub, IEX Cloud) door dezelfde interface te
- * implementeren.
+ * v3 vereist `new YahooFinance()` — we gebruiken de shared singleton
+ * uit [`yahoo-client.ts`](./yahoo-client.ts) zodat de symbol-resolver
+ * dezelfde cookie-jar en rate-limit-state deelt.
+ *
+ * Voordelen: geen API-key, dekt quotes/FX/fundamentals/history onder
+ * één interface. Nadelen: unofficial API (rate-limits, occasional schema
+ * shifts, geen SLA). Voor productie met veel traffic: verplaats naar een
+ * betaalde provider door dezelfde interface te implementeren.
  *
  * Design notes:
- *  - yahoo-finance2 heeft strikte TS overloads die zonder `fields` opties
- *    naar `never` narrowen. We typen de responses dus via een lichte
- *    `YahooQuoteShape` en casten binnen de adapter — buiten dit bestand
- *    blijft alles strict-typed.
- *  - Alle methodes zijn defensief: Yahoo levert vaak undefined-velden
- *    voor niet-US-tickers. Wij retourneren `undefined` i.p.v. NaN.
+ *  - Yahoo levert vaak undefined-velden voor niet-US-tickers. Wij
+ *    retourneren `undefined` i.p.v. NaN zodat scoring op neutral 50 valt.
  *  - Ticker-suffixen (.AS, .L, .DE, ...) werken ongewijzigd.
+ *  - LSE-tickers noteren in pence (GBp) — we normaliseren naar GBP.
  *  - FX-pairs worden gebouwd als `${from}${to}=X` (Yahoo-conventie).
  */
-
-// Survey-notice van yahoo-finance2 onderdrukken — verschijnt anders elke
-// process-lifetime in de logs. De API is runtime-aanwezig maar TS-types
-// dekken 'm niet; cast om strict-mode tevreden te houden.
-const suppress = (yahooFinance as unknown as {
-  suppressNotices?: (keys: string[]) => void;
-}).suppressNotices;
-if (typeof suppress === "function") {
-  suppress(["ripHistorical", "yahooSurvey"]);
-}
 
 interface YahooQuoteShape {
   symbol?: string;
@@ -158,7 +147,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
 
   async getQuote(ticker: string): Promise<Quote | null> {
     try {
-      const raw = (await yahooFinance.quote(ticker)) as unknown as
+      const raw = (await yahooClient.quote(ticker)) as unknown as
         | YahooQuoteShape
         | undefined;
       if (!raw) return null;
@@ -172,7 +161,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
   async getQuotes(tickers: string[]): Promise<Quote[]> {
     if (tickers.length === 0) return [];
     try {
-      const raw = (await yahooFinance.quote(tickers)) as unknown as
+      const raw = (await yahooClient.quote(tickers)) as unknown as
         | YahooQuoteShape
         | YahooQuoteShape[]
         | undefined;
@@ -205,7 +194,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
     }
     const symbol = `${from}${to}=X`;
     try {
-      const raw = (await yahooFinance.quote(symbol)) as unknown as
+      const raw = (await yahooClient.quote(symbol)) as unknown as
         | YahooQuoteShape
         | undefined;
       if (!raw || typeof raw.regularMarketPrice !== "number") return null;
@@ -224,7 +213,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
 
   async getFundamentals(ticker: string): Promise<FundamentalsSnapshot | null> {
     try {
-      const raw = (await yahooFinance.quoteSummary(ticker, {
+      const raw = (await yahooClient.quoteSummary(ticker, {
         modules: [
           "summaryDetail",
           "defaultKeyStatistics",
@@ -286,7 +275,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
   async getHistory(request: HistoryRequest): Promise<HistoricalPoint[]> {
     const interval = HISTORY_INTERVAL_MAP[request.interval ?? "1d"];
     try {
-      const raw = (await yahooFinance.chart(request.ticker, {
+      const raw = (await yahooClient.chart(request.ticker, {
         period1: new Date(request.startDate),
         period2: new Date(request.endDate),
         interval,

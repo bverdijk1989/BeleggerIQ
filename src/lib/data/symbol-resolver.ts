@@ -1,7 +1,6 @@
-import yahooFinance from "yahoo-finance2";
-
 import { log } from "@/lib/log";
 
+import { yahooClient } from "./providers/yahoo-client";
 import { withRetry, withTimeout } from "./resilience";
 
 /**
@@ -42,12 +41,7 @@ interface YahooSearchResult {
 async function searchYahoo(query: string): Promise<string | null> {
   try {
     const raw = await withRetry(
-      () =>
-        withTimeout(
-          (yahooFinance as unknown as { search: (q: string) => Promise<unknown> })
-            .search(query),
-          RESOLVE_TIMEOUT_MS,
-        ),
+      () => withTimeout(yahooClient.search(query), RESOLVE_TIMEOUT_MS),
       { scope: "yahoo:resolve", retries: 1, baseDelayMs: 200, maxDelayMs: 500 },
     );
     const result = raw as YahooSearchResult | undefined;
