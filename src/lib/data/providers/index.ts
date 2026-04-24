@@ -1,7 +1,9 @@
 import { log } from "@/lib/log";
 
+import { NoneMarketDataProvider } from "./none";
 import { StubMarketDataProvider } from "./stub";
 import type { MarketDataProvider } from "./types";
+import { YahooMarketDataProvider } from "./yahoo";
 
 /**
  * Resolver voor de actieve marktdata-provider. Kiest op basis van
@@ -20,6 +22,17 @@ export function getMarketDataProvider(): MarketDataProvider {
 
   const name = (process.env.MARKET_DATA_PROVIDER ?? "stub").toLowerCase();
   switch (name) {
+    case "none":
+      // Geen live data — enrichment valt terug op Holding.currentPrice.
+      // Gebruik dit in productie zolang er nog geen live provider is.
+      cachedProvider = new NoneMarketDataProvider();
+      return cachedProvider;
+    case "yahoo":
+      // Live quotes, FX, fundamentals en history via Yahoo Finance.
+      // Geen API-key nodig; rate-limits gelden wel — de ingebouwde
+      // cache + retry/timeout-laag houdt load laag.
+      cachedProvider = new YahooMarketDataProvider();
+      return cachedProvider;
     case "stub":
     default: {
       if (name !== "stub") {
