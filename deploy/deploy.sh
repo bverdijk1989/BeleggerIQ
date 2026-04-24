@@ -51,8 +51,17 @@ npx prisma migrate deploy
 echo "== [5/6] next build =="
 npm run build
 
-# Prune devDependencies na de build — ze zijn niet nodig in runtime.
-npm prune --omit=dev
+# Prune devDependencies na de build — default aan voor slanke runtime.
+# Skip met `PRUNE_DEV=0 ./deploy.sh` als je na deploy nog dev tools nodig hebt
+# (bv. `prisma db seed` gebruikt tsx, en tsx zit in devDependencies).
+# Alternatief na een pruned deploy:
+#   cd /var/www/beleggeriq/current
+#   npm install --include=dev --no-audit --no-fund
+#   npx prisma db seed
+#   npm prune --omit=dev
+if [ "${PRUNE_DEV:-1}" = "1" ]; then
+    npm prune --omit=dev
+fi
 
 echo "== [6/6] Atomic symlink swap + restart =="
 ln -sfn "$RELEASE" "$BASE/current"

@@ -1,53 +1,40 @@
-# BeleggerIQ 2.0 — nginx reverse proxy
+# BeleggerIQ 2.0 — nginx reverse proxy (pre-SSL)
+#
+# Deze config start bewust alleen op port 80. Dat is nodig omdat:
+#   1. `listen 443 ssl` zonder `ssl_certificate`-paden = nginx test fail.
+#   2. `certbot --nginx` detecteert deze port-80 vhost, rijgt er na SSL-
+#      issuance een heel port-443 block aan vast (met ssl_certificate,
+#      HSTS, http2) en redirect port 80 → 443.
 #
 # Installatie:
-#   1. Vervang BELEGGERIQ_DOMAIN door je subdomain (bv. beleggeriq.mijndomein.nl).
-#   2. Kopieer naar /etc/nginx/sites-available/beleggeriq.conf
-#   3. ln -s /etc/nginx/sites-available/beleggeriq.conf /etc/nginx/sites-enabled/
-#   4. nginx -t && systemctl reload nginx
-#   5. SSL via:  certbot --nginx -d BELEGGERIQ_DOMAIN
+#   1. Vervang BELEGGERIQ_DOMAIN door je subdomain (bv. beleggeriq.aegiscore.nl).
+#   2. sudo cp naar /etc/nginx/sites-available/beleggeriq.conf
+#   3. sudo ln -s /etc/nginx/sites-available/beleggeriq.conf /etc/nginx/sites-enabled/
+#   4. sudo nginx -t && sudo systemctl reload nginx
+#   5. sudo certbot --nginx -d BELEGGERIQ_DOMAIN
+#      (géén http:// prefix!)
 
-# HTTP → forceer HTTPS
 server {
     listen 80;
     listen [::]:80;
     server_name BELEGGERIQ_DOMAIN;
 
-    # Let's Encrypt ACME challenge blijft bereikbaar
+    # Standaard security headers (certbot voegt HSTS op 443 toe na issuance).
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Max upload size voor DEGIRO CSV-imports (client-side al capped op 5MB).
+    client_max_body_size 6M;
+
+    # Let's Encrypt ACME challenge moet altijd via HTTP blijven.
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
 
+    # Next.js server op 127.0.0.1:3003
     location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-# HTTPS → Next.js op 127.0.0.1:3000
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name BELEGGERIQ_DOMAIN;
-
-    # SSL-config wordt door certbot ingevuld als je de certbot-plugin draait.
-    # ssl_certificate     /etc/letsencrypt/live/BELEGGERIQ_DOMAIN/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/BELEGGERIQ_DOMAIN/privkey.pem;
-
-    # Standaard security headers
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    # BeleggerIQ gebruikt inline styles via Tailwind + client fetch naar zichzelf;
-    # Loosen indien derde partijen nodig zijn.
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:;" always;
-
-    # Max upload size voor DEGIRO CSV-imports (client-side already caps at 5MB).
-    client_max_body_size 6M;
-
-    # Next.js server
-    location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3003;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -63,10 +50,14 @@ server {
         proxy_read_timeout      30s;
     }
 
-    # Next.js static assets krijgen een lange cache-header
+    # Next.js static assets krijgen een lange cache-header.
     location /_next/static/ {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3003;
         proxy_cache_valid 200 365d;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 }
+
+# NB: na `certbot --nginx -d BELEGGERIQ_DOMAIN` voegt certbot automatisch een
+# `server { listen 443 ssl http2; ... ssl_certificate ... }` block toe,
+# plus een 80→443 redirect. Je hoeft die niet zelf te schrijven.

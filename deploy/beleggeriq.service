@@ -19,7 +19,7 @@ User=beleggeriq
 Group=beleggeriq
 WorkingDirectory=/var/www/beleggeriq/current
 EnvironmentFile=/var/www/beleggeriq/shared/.env.production
-ExecStart=/usr/bin/node /var/www/beleggeriq/current/node_modules/.bin/next start -p 3000
+ExecStart=/usr/bin/node /var/www/beleggeriq/current/node_modules/.bin/next start -p 3003
 Restart=always
 RestartSec=5
 # Harden

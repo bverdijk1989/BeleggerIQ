@@ -35,8 +35,14 @@ echo "== [4/7] nginx + certbot =="
 apt-get install -y nginx
 apt-get install -y certbot python3-certbot-nginx
 
-echo "== [5/7] UFW firewall (22/80/443) =="
-ufw allow OpenSSH
+echo "== [5/7] UFW firewall (SSH op poort ${SSH_PORT:-22}, + 80/443) =="
+# SSH_PORT overrulet de standaard wanneer sshd op een niet-standaard poort
+# luistert (bv. 2222 bij Hetzner security-hardening).
+#   SSH_PORT=2222 sudo -E bash bootstrap.sh
+# Detecteer automatisch wat sshd listent:
+AUTO_SSH_PORT="$(ss -tlnp 2>/dev/null | awk '/sshd/ {sub(/.*:/,"",$4); print $4; exit}')"
+SSH_PORT="${SSH_PORT:-${AUTO_SSH_PORT:-22}}"
+ufw allow "${SSH_PORT}/tcp" comment "SSH"
 ufw allow 'Nginx Full'
 ufw --force enable
 

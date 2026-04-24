@@ -14,10 +14,28 @@ rollback-pad.
 | [`beleggeriq.service`](./beleggeriq.service) | systemd unit met hardening (ProtectSystem, NoNewPrivileges) |
 | [`deploy.sh`](./deploy.sh) | Pull + build + migrate + swap; draai als `beleggeriq`-user |
 
+## SSH-poort
+
+Deze Hetzner-machine draait sshd op **port 2222** (security-hardening). Voeg
+toe aan je lokale `~/.ssh/config`:
+
+```
+Host beleggeriq
+    HostName 195.201.149.219
+    User root
+    Port 2222
+```
+
+Daarna: `ssh beleggeriq` in plaats van `ssh -p 2222 root@...`.
+
+Het bootstrap-script detecteert automatisch op welke poort sshd luistert en
+opent die in UFW. Expliciet overrulen kan met
+`SSH_PORT=2222 sudo -E bash bootstrap.sh`.
+
 ## Volgorde (eerste deploy)
 
 ```bash
-# --- Als root op de verse server ---
+# --- Op de server, als root (via 'ssh beleggeriq' of 'ssh -p 2222 root@195.201.149.219') ---
 wget -O bootstrap.sh https://raw.githubusercontent.com/bverdijk1989/BeleggerIQ/main/deploy/server-bootstrap.sh
 sudo bash bootstrap.sh
 # Noteer de DATABASE_URL die het script uitprint.
