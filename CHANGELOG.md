@@ -2,6 +2,43 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-24 · Data Quality & Enrichment
+
+### Added
+- [`src/lib/data/instrument-enrichment.ts`](src/lib/data/instrument-enrichment.ts) — nieuwe laag die ticker+ISIN (+ optioneel naam) verrijkt naar een volledig `EnrichedInstrument`-record (normalizedTicker, assetClass, sector, industry, region, country, currency, exchange, confidence, sources, warnings). Gebruikt Yahoo's `quoteSummary` met `assetProfile` / `price` / `fundProfile` modules. 6u TTL-cache via `marketDataCache`, defensief bij throws/timeouts.
+- [`src/lib/analytics/data-quality.ts`](src/lib/analytics/data-quality.ts) — pure analytics: `assessHoldingQuality` per positie + `assessPortfolioQuality` weight-gewogen op portfolio. Levert `HoldingQuality` (severity ok/minor/major, missing fields, notes) en `PortfolioQualityReport` (overallScore, unknown-sector/region/assetClass weight, distributionBySource). Helpers: `SEVERITY_LABELS`, `MISSING_FIELD_LABELS`, `portfolioQualityVerdict`.
+- [`src/components/common/data-quality-panel.tsx`](src/components/common/data-quality-panel.tsx) — presentationele UI: verdict-badge, metrics-grid, sorteerbare holdings-tabel (major eerst, dan weight desc), provenance-bar met bron-verdeling. Geen businesslogica; consumeert een pre-built `PortfolioQualityReport`.
+- [`src/app/(app)/portfolio/page.tsx`](src/app/(app)/portfolio/page.tsx) — wires de enrichment-call + quality-assessment server-side, rendert `<DataQualityPanel>` in een nieuwe "Data-kwaliteit" sectie.
+- Tests:
+  - [`src/lib/data/instrument-enrichment.test.ts`](src/lib/data/instrument-enrichment.test.ts) — 7 cases: EQUITY happy path, ETF-classificatie, volledige Yahoo-miss fallback, naam-heuristiek voor assetClass, GBp→GBP normalisatie, cache-gedrag, profile-throw met graceful degrade.
+  - [`src/lib/analytics/data-quality.test.ts`](src/lib/analytics/data-quality.test.ts) — 13 cases: volledig record → ok, EQUITY zonder sector → notitie, ETF zonder sector = OK (verwacht), geen enrichment → warning + lage completeness, weight clamping, severity thresholds, portfolio weight-weighted overallScore, unknown-sector alleen voor EQUITY, distributionBySource telt over alle holdings, lege portfolio geen crash, verdict-labels, NL severity-labels.
+  - Uitgebreid [`src/lib/data/symbol-resolver.test.ts`](src/lib/data/symbol-resolver.test.ts) met 15 extra cases voor `resolveYahooMatch`, `detectAssetClassFromQuoteType`, `detectAssetClassFromName`, `detectRegionFromExchange`, `normalizeTickerForExchange`.
+
+### Changed
+- [`src/lib/data/symbol-resolver.ts`](src/lib/data/symbol-resolver.ts) — uitgebreid van "ticker → symbol-string" naar een volwaardige resolver:
+  - Nieuwe publieke API: `resolveYahooMatch(ticker, isin?)` → `ResolvedSymbol` met `symbol`, `exchange`, `quoteType`, `shortName`, `matched`-flag.
+  - Back-compat: `resolveYahooSymbol` blijft bestaan als thin wrapper.
+  - Nieuwe pure helpers: `detectAssetClassFromQuoteType` (Yahoo quoteType → `AssetClass`), `detectAssetClassFromName` (naam-heuristiek), `detectRegionFromExchange` (beurs-code → region), `normalizeTickerForExchange` (voegt .AS / .DE / .L / … suffix toe). Allemaal getest.
+
+### Design-regels
+- **Geen verzonnen data**: elke field is óf provider-backed, óf afgeleid via expliciete heuristiek. Missing → `null`. Confidence = fractie gevulde velden; callers bepalen drempels.
+- **ETFs worden gedetecteerd, niet geraden**: `quoteType === "ETF"`, `MUTUALFUND`, of `fundProfile` aanwezig → `ETF`. Fallback: UCITS/TRACKER/INDEX FUND keyword in naam. Sector/industry ontbrekend voor ETFs telt **niet** als "missing" — dat is verwacht gedrag voor fondsen.
+- **Multi-source provenance**: elke `EnrichedInstrument` documenteert welke bronnen hebben bijgedragen (`yahoo-search`, `yahoo-profile`, `ticker-heuristic`, `input`) zodat de UI in de Provenance-bar audit-context kan tonen.
+- **Geen businesslogica in UI**: `DataQualityPanel` neemt een kant-en-klaar `PortfolioQualityReport` en rendert opmaak + NL-labels. Bouwen van het report gebeurt server-side in de page.
+- **Weight-weging op portfolio-niveau**: een onbekende sector op een 0,3%-positie is minder erg dan op een 25%-positie. `overallScore`, `unknownSectorWeight` etc. zijn allemaal weight-weighted.
+- **Defensief zonder stilzwijgen**: bij Yahoo-throw geen crash — fallback naar search-data + warning in `warnings[]`. UI toont lagere confidence zodat de user weet dat data incompleet is.
+
+### Validatie
+- `npm test` → **400/400 tests groen** (+37 nieuwe).
+- `npx tsc --noEmit` → schoon.
+- `npx next build` → slaagt.
+
+### Aannames
+- Yahoo's `quoteSummary` met modules `assetProfile/summaryProfile/price/fundProfile` is de canonieke bron. Bij provider-wissel (Alpha Vantage, Finnhub) moet elk die vier velden in hetzelfde shape mappen via dezelfde interface.
+- Cache TTL van 6 uur: sector/industrie/country wijzigen zelden en een miss kost weinig.
+- Enrichment gebeurt alleen wanneer `MARKET_DATA_PROVIDER=yahoo`. Voor `stub`/`none` zou een vaste ticker → enrichment-lookup tabel nog toegevoegd kunnen worden (niet in deze ronde, niet in scope).
+- `AssetClass` enum wordt niet uitgebreid — `ETF`, `EQUITY`, `OTHER` volstaan. `MUTUALFUND` valt onder `ETF` (beide gepoolde fondsen, functioneel equivalent voor onze scoring).
+
 ## [Unreleased] - 2026-04-24 · Auth + resilience + module-sweep
 
 ### Added

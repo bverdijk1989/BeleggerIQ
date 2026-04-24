@@ -13,7 +13,12 @@ vi.mock("./providers/yahoo-client", () => ({
 import { yahooClient } from "./providers/yahoo-client";
 
 import {
+  detectAssetClassFromName,
+  detectAssetClassFromQuoteType,
+  detectRegionFromExchange,
+  normalizeTickerForExchange,
   resetSymbolResolverCache,
+  resolveYahooMatch,
   resolveYahooSymbol,
   resolveYahooSymbols,
 } from "./symbol-resolver";
@@ -116,5 +121,113 @@ describe("resolveYahooSymbols (bulk)", () => {
     ]);
     expect(map.get("AAPL")).toBe("AAPL");
     expect(mockedSearch).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveYahooMatch (inclusief meta)", () => {
+  it("retourneert quoteType en exchange wanneer Yahoo die levert", async () => {
+    mockedSearch.mockResolvedValueOnce({
+      quotes: [
+        {
+          symbol: "VUSA.AS",
+          exchange: "AMS",
+          quoteType: "ETF",
+          shortname: "Vanguard S&P 500 UCITS ETF",
+        },
+      ],
+    });
+    const m = await resolveYahooMatch("VANGUARD", "IE00B3XXRP09");
+    expect(m.matched).toBe(true);
+    expect(m.symbol).toBe("VUSA.AS");
+    expect(m.exchange).toBe("AMS");
+    expect(m.quoteType).toBe("ETF");
+    expect(m.shortName).toBe("Vanguard S&P 500 UCITS ETF");
+  });
+
+  it("matched=false bij lookup-miss", async () => {
+    mockedSearch.mockResolvedValue({ quotes: [] });
+    const m = await resolveYahooMatch("MYSTERY");
+    expect(m.matched).toBe(false);
+    expect(m.symbol).toBe("MYSTERY");
+    expect(m.quoteType).toBeNull();
+  });
+});
+
+describe("detectAssetClassFromQuoteType", () => {
+  it("mapt Yahoo quoteType naar onze enum", () => {
+    expect(detectAssetClassFromQuoteType("EQUITY")).toBe("EQUITY");
+    expect(detectAssetClassFromQuoteType("ETF")).toBe("ETF");
+    expect(detectAssetClassFromQuoteType("MUTUALFUND")).toBe("ETF");
+    expect(detectAssetClassFromQuoteType("CRYPTOCURRENCY")).toBe("CRYPTO");
+    expect(detectAssetClassFromQuoteType("CURRENCY")).toBe("CASH");
+    expect(detectAssetClassFromQuoteType("INDEX")).toBe("OTHER");
+  });
+
+  it("retourneert null voor onbekende types (force caller-decision)", () => {
+    expect(detectAssetClassFromQuoteType("OPTION")).toBeNull();
+    expect(detectAssetClassFromQuoteType(undefined)).toBeNull();
+    expect(detectAssetClassFromQuoteType("")).toBeNull();
+  });
+});
+
+describe("detectAssetClassFromName (heuristic fallback)", () => {
+  it("herkent ETF via UCITS/TRACKER keyword", () => {
+    expect(detectAssetClassFromName("Vanguard S&P 500 UCITS ETF")).toBe("ETF");
+    expect(detectAssetClassFromName("iShares World Index TRACKER")).toBe("ETF");
+  });
+
+  it("herkent BOND via keyword", () => {
+    expect(detectAssetClassFromName("Dutch Government Bond 2030")).toBe("BOND");
+    expect(detectAssetClassFromName("US Treasury Note")).toBe("BOND");
+  });
+
+  it("default EQUITY bij geen herkenbaar patroon", () => {
+    expect(detectAssetClassFromName("NVIDIA CORPORATION")).toBe("EQUITY");
+  });
+});
+
+describe("detectRegionFromExchange", () => {
+  it("US exchanges → North America", () => {
+    expect(detectRegionFromExchange("NYQ")).toBe("North America");
+    expect(detectRegionFromExchange("NMS")).toBe("North America");
+  });
+
+  it("LSE → UK", () => {
+    expect(detectRegionFromExchange("LSE")).toBe("UK");
+  });
+
+  it("European exchanges → Europe", () => {
+    expect(detectRegionFromExchange("AMS")).toBe("Europe");
+    expect(detectRegionFromExchange("FRA")).toBe("Europe");
+    expect(detectRegionFromExchange("PAR")).toBe("Europe");
+    expect(detectRegionFromExchange("MIL")).toBe("Europe");
+  });
+
+  it("Asian exchanges → Asia", () => {
+    expect(detectRegionFromExchange("TYO")).toBe("Asia");
+    expect(detectRegionFromExchange("HKG")).toBe("Asia");
+  });
+
+  it("retourneert null voor onbekende beurs", () => {
+    expect(detectRegionFromExchange("UNKNOWN")).toBeNull();
+    expect(detectRegionFromExchange(null)).toBeNull();
+  });
+});
+
+describe("normalizeTickerForExchange", () => {
+  it("voegt suffix toe wanneer ticker geen punt heeft", () => {
+    expect(normalizeTickerForExchange("ASML", "AMS")).toBe("ASML.AS");
+    expect(normalizeTickerForExchange("SHEL", "LSE")).toBe("SHEL.L");
+    expect(normalizeTickerForExchange("SAP", "FRA")).toBe("SAP.DE");
+  });
+
+  it("laat ticker met expliciete suffix met rust", () => {
+    expect(normalizeTickerForExchange("ASML.AS", "AMS")).toBe("ASML.AS");
+    expect(normalizeTickerForExchange("BRK-B", "NYQ")).toBe("BRK-B");
+  });
+
+  it("retourneert input ongewijzigd voor onbekende beurs", () => {
+    expect(normalizeTickerForExchange("XXX", "UNKNOWN")).toBe("XXX");
+    expect(normalizeTickerForExchange("XXX", null)).toBe("XXX");
   });
 });
