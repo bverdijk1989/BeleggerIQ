@@ -7,6 +7,7 @@ import type {
   RebalanceRecommendation,
 } from "@/types/rebalance";
 
+import { computeRebalanceQuantity } from "../rebalance/rebalance-quantity";
 import type { HoldingValuation } from "../valuation";
 
 import {
@@ -152,6 +153,19 @@ function recommendFor(
 
   const confidence = computeConfidence(factor?.confidence ?? null, classification);
 
+  // Concrete afbouw-quantity: stuks + bedrag + NL action label + post-sell
+  // weight. De quantity-engine leunt op `unitPriceBase` wanneer beschikbaar;
+  // zonder koersdata levert 'ie een plan met sharesToSell=0 + warning.
+  const quantityPlan = computeRebalanceQuantity({
+    symbol: valuation.holding.ticker,
+    action,
+    currentValue: valuation.marketValueBase,
+    currentPrice: unitPriceBase ?? null,
+    totalPortfolioValue: totalValue,
+    targetWeight,
+    classifierConfidence: factor?.confidence ?? null,
+  });
+
   return {
     ticker: valuation.holding.ticker,
     name: valuation.holding.name,
@@ -166,6 +180,7 @@ function recommendFor(
     reasons,
     confidence,
     factorSnapshot,
+    quantityPlan,
   };
 }
 

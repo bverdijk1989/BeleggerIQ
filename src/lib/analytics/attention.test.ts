@@ -71,6 +71,7 @@ function rec(
       sector: null,
       sectorCyclicality: "low",
     },
+    quantityPlan: overrides.quantityPlan,
   };
 }
 
@@ -144,6 +145,57 @@ describe("buildAttentionItems", () => {
     const [item] = buildAttentionItems(emptyRisk(), plan);
     expect(item).toBeDefined();
     expect(item!.message.length).toBeGreaterThan(0);
+  });
+
+  it("quantityPlan wordt doorgegeven van recommendation naar attention-item", () => {
+    const qPlan = {
+      symbol: "RHM",
+      actionLabel: "licht afbouwen" as const,
+      currentWeight: 17.53,
+      targetWeight: 10,
+      currentValue: 17530,
+      targetValue: 10000,
+      excessValue: 7530,
+      currentPrice: 1750,
+      sharesToSell: 4,
+      amountToSell: 7000,
+      postSellWeight: 10.53,
+      reason: "Boven policy-cap van 10%; verkoop 4 aandelen.",
+      confidence: "HIGH" as const,
+      warnings: [],
+    };
+    const plan = emptyPlan({
+      recommendations: [
+        rec({
+          ticker: "RHM",
+          action: "TRIM_LIGHT",
+          reasons: ["Factor-reason"],
+          quantityPlan: qPlan,
+        }),
+      ],
+    });
+    const [item] = buildAttentionItems(emptyRisk(), plan);
+    expect(item?.quantityPlan).toBeDefined();
+    expect(item?.quantityPlan?.sharesToSell).toBe(4);
+    expect(item?.quantityPlan?.amountToSell).toBe(7000);
+    // Als quantityPlan een reason heeft, wint die over rec.reasons
+    expect(item?.message).toContain("verkoop 4 aandelen");
+  });
+
+  it("quantityPlan ontbreekt → geen crash, message valt terug op reasons", () => {
+    const plan = emptyPlan({
+      recommendations: [
+        rec({
+          ticker: "Y",
+          action: "TRIM_HEAVY",
+          reasons: ["Manual reason"],
+          // quantityPlan weggelaten
+        }),
+      ],
+    });
+    const [item] = buildAttentionItems(emptyRisk(), plan);
+    expect(item?.quantityPlan).toBeUndefined();
+    expect(item?.message).toBe("Manual reason");
   });
 });
 

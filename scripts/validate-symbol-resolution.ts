@@ -5,9 +5,16 @@
  * correct naar Yahoo-symbolen worden gemapped. Doet **echte** Yahoo
  * search-calls — geen mocks, geen fixtures.
  *
- * Gebruik (op de server als beleggeriq-user):
+ * Gebruik (op de server — werkt zonder devDependencies na een deploy):
  *
  *   cd /var/www/beleggeriq/current
+ *   MARKET_DATA_PROVIDER=yahoo npm run validate:symbols
+ *
+ * Dat draait de pre-gebundelde JS (`dist/scripts/validate-symbol-resolution.js`)
+ * die `deploy.sh` aanmaakt via esbuild. Geen tsx, geen dev-deps nodig.
+ *
+ * Lokaal met dev-deps direct op TS:
+ *
  *   MARKET_DATA_PROVIDER=yahoo npx tsx scripts/validate-symbol-resolution.ts
  *
  * Output: tabel per holding met:
@@ -54,7 +61,9 @@ async function main(): Promise<void> {
     console.warn(
       "⚠️  MARKET_DATA_PROVIDER != 'yahoo'. Dit script heeft alleen zin tegen de Yahoo-provider.",
     );
-    console.warn("   Zet: MARKET_DATA_PROVIDER=yahoo npx tsx scripts/...");
+    console.warn(
+      "   Zet: MARKET_DATA_PROVIDER=yahoo npm run validate:symbols",
+    );
     process.exit(2);
   }
 

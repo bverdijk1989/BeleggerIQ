@@ -13,6 +13,8 @@
 
 # production
 /build
+# Gebundelde ops-scripts (gegenereerd door `npm run build:scripts`)
+/dist
 
 # misc
 .DS_Store

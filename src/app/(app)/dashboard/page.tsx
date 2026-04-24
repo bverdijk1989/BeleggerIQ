@@ -7,7 +7,6 @@ import {
   buildAttentionItems,
   buildPortfolioView,
   generateAllocationPlan,
-  runScreen,
 } from "@/lib/analytics";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
@@ -25,12 +24,11 @@ import { BuyPlanPreviewCard } from "./components/buy-plan-preview-card";
 import { HistoryCharts } from "./components/history-charts";
 import { MarketRegimeCard } from "./components/market-regime-card";
 import { NextActionCard } from "./components/next-action-card";
-import {
-  TopOpportunitiesCard,
-  TopRisksCard,
-} from "./components/risks-and-opportunities";
+import { TopRisksCard } from "./components/risks-and-opportunities";
 import { SnapshotButton } from "./components/snapshot-button";
+import { TopKansenCard } from "./components/top-kansen-card";
 import { TopStats } from "./components/top-stats";
+import { loadOpportunityData } from "../kansen/load-opportunity-data";
 
 export const metadata = {
   title: "Dashboard",
@@ -54,15 +52,14 @@ export default async function DashboardPage() {
 
   const portfolio = context.portfolio;
 
-  // Parallel fetches: portfolio view + regime + screener + historiek.
+  // Parallel fetches: portfolio view + regime + historiek.
   // Allocation plan kan pas daarna (heeft regime + view nodig).
-  const [view, regimeFetch, screenerResult, snapshots] = await Promise.all([
+  const [view, regimeFetch, snapshots] = await Promise.all([
     buildPortfolioView(portfolio, {
       includeFundamentals: true,
       includeFactorScores: true,
     }),
     fetchRegimeInputs(),
-    runScreen({ filters: {}, limit: 3 }),
     portfolioSnapshotRepository
       .listForPortfolio(portfolio.id, 180)
       .catch(() => []),
@@ -94,6 +91,17 @@ export default async function DashboardPage() {
 
   const attention = buildAttentionItems(view.risk, view.rebalance);
   const updatedAt = new Date(view.lastUpdated).toLocaleString("nl-NL");
+
+  // Opportunity Radar: compact top-3 voor widget. Faal-safe bij
+  // provider-uitval zodat de rest van het dashboard intact blijft.
+  const opportunityReport = await loadOpportunityData({
+    portfolio,
+    view,
+    userEmail: auth.user.email,
+    config: { maxCandidates: 3, minSignalStrength: 40 },
+  })
+    .then((r) => r.report)
+    .catch(() => null);
 
   return (
     <>
@@ -136,7 +144,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <TopOpportunitiesCard candidates={screenerResult.candidates} />
+        <TopKansenCard candidates={opportunityReport?.candidates ?? []} />
         <BuyPlanPreviewCard plan={plan} />
       </div>
 

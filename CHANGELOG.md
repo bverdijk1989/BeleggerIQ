@@ -2,6 +2,398 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-25 · AI Research Dossiers
+
+### Added
+- [`src/lib/ai/research-dossier.ts`](src/lib/ai/research-dossier.ts) — twee-laagse engine voor research-dossiers:
+  - **`buildResearchContext`** — pure data-extractor. Verzamelt key-metrics (composite, sub-scores, P/E, FCF-yield, ROIC, debt/equity, dividend-yield, koers, mispricing-score, opportunity-score) als **pre-formatted strings** in `keyMetrics[]`. Bull/bear/risk-points komen letterlijk uit engine-rationales (factor-engine `deriveStrengthsWeaknesses`, opportunity-radar signals, mispricing-scanner signals + risk-flag-codes, rebalance-engine reasons, classifier-warnings).
+  - **`renderResearchDossier`** — deterministische renderer. Bouwt `thesis` (composite + grade + bull/bear-counts + onzekerheid), `bullCase[]`, `bearCase[]`, `risks[]`, `keyNumbers[]`, `missingData[]`, `decisionChecklist[]`, `uncertaintyNote`, `confidence`. Geen LLM-call, geen `Math.round` op bestaande engine-waarden.
+  - **`buildResearchDossier`** — one-shot helper voor de API-route.
+  - **`buildResearchDossierPrompt`** + **`RESEARCH_DOSSIER_SYSTEM_PROMPT`** — prompt-payload klaar voor toekomstige LLM-swap. System prompt verbiedt expliciet: nieuwe scores verzinnen, factor-/mispricing-/opportunity-scores aanpassen, koop-/verkoopadvies geven.
+  - **`validateAiOutputAgainstContext`** — sanity-check helper die elk numeric mention in een (theoretisch) AI-gegenereerde tekst vergelijkt met `context.keyMetrics` + rationale-getallen. Wordt nog niet runtime gebruikt (renderer is puur), staat klaar voor de LLM-swap.
+- [`src/lib/ai/research-dossier-loader.ts`](src/lib/ai/research-dossier-loader.ts) — server-only loader. Fetcht parallel: portfolio (Prisma), fundamentals, 400d daily history. Roept `scoreFactors` aan (factor-engine) wanneer ten minste één van fundamentals/history aanwezig is. Geeft `dossier` + `diagnostics` (foundHolding, fundamentalsAvailable, factorScored, historyDays) terug.
+- [`src/app/api/ai/research-dossier/route.ts`](src/app/api/ai/research-dossier/route.ts) — `POST /api/ai/research-dossier`. Body: `{ ticker }`. Auth via `resolveUser` (cookie of dev-header). Validatie via bestaande `parseTickerStrict`. Cache-Control `private, max-age=60, stale-while-revalidate=300`. Errors via `jsonError`/`jsonServerError` voor consistente API-shape met de andere AI-routes.
+- [`src/app/(app)/portfolio/components/research-dossier-button.tsx`](src/app/(app)/portfolio/components/research-dossier-button.tsx) — client-component "Maak research dossier" knop + Sheet die het dossier rendert. Pure presentatie: fetcht de API, ontvangt het dossier en toont:
+  - Header met ticker + naam + timestamp
+  - Thesis (1–3 zinnen)
+  - Confidence-strip (%) met source-engine-lijst
+  - Belangrijkste cijfers (grid uit `keyNumbers` met source-label per cijfer)
+  - Bull case / Bear case / Risico's (bullets)
+  - Besluitchecklist (icon-list)
+  - Ontbrekende data (warning-strip)
+  Loading-state (`Loader2` spinner) en error-state met expliciete fout-melding.
+- [`src/lib/ai/research-dossier.test.ts`](src/lib/ai/research-dossier.test.ts) — **16 nieuwe tests** over context-extractor (5: key-metrics collectie, bull/bear-points, dedup, missing-data, leeg keyMetrics), renderer (5: thesis-cijfers, decisionChecklist-defaults, value-trap-vraag, low-confidence-vraag, missingData/sourceEngines pass-through), one-shot determinisme, prompt-payload (system + user), en `validateAiOutputAgainstContext` (geen cijfers / matchende cijfers / verzonnen cijfers).
+
+### Changed
+- [`src/lib/ai/index.ts`](src/lib/ai/index.ts) — `export * from "./research-dossier"`.
+- [`src/app/(app)/portfolio/components/holdings-table.tsx`](src/app/(app)/portfolio/components/holdings-table.tsx) — `<ResearchDossierButton ticker={row.ticker} label={row.name} />` toegevoegd in de actie-kolom, naast de bestaande `<ActionBadge>`. Geen layout-breaking change; de actie-kolom is een flex-stack.
+
+### Design-regels (guardrails)
+- **Geen LLM in productie-pad.** De renderer is volledig deterministisch — door constructie kan er geen verzonnen score/cijfer in de output sluipen. De prompt-payload is klaar voor een latere LLM-swap, met expliciete system-prompt-regels die het LLM precies dezelfde guardrails opleggen.
+- **AI past geen engine-scores aan.** De composite, sub-scores, mispricing-score en opportunity-score worden 1:1 uit de engine overgenomen (`Math.round` op composite is alleen een display-helper). De renderer kent geen pad om "score: X" zelf te bepalen.
+- **Cijfers komen uit één bron: `keyMetrics`.** Elke `value` is al pre-formatted als string ("P/E 14.2", "ROIC 31.0%", "72/100"). De renderer plaatst ze 1:1 in `keyNumbers`. Geen herformattering, geen herberekening.
+- **Onzekerheid is verplicht.** `missingData[]` lijst alle ontbrekende inputs (factor-scores, fundamentals, mispricing, opportunity-radar, holding-context). `confidence` (0..1) bouwt op vanaf 0.3 met +0.2/+0.1/+0.15 per beschikbare bron. UI rendert deze in een gekleurde strip + warning-list.
+- **AI mag alleen structureren.** De prozza-zinnen die de renderer maakt (thesis, checklist-vragen) gebruiken de getallen uit `keyMetrics` of zijn template-vragen zonder cijfers. Engines bepalen de feiten; de renderer zet ze in NL-zinnen.
+- **Source-attribution.** Elke `ResearchMetric` en `ResearchEvidencePoint` draagt een `source` veld (`factor-engine` / `fundamentals` / `mispricing-scanner` / `opportunity-radar` / `rebalance-engine` / `classifier`). UI toont dit als audit-trail; gebruikers kunnen zien waar elke claim vandaan komt.
+- **Decision-checklist is template + context-aware.** Vaste reflectie-vragen (profiel, positiegrootte, exit-trigger) altijd aanwezig; aanvullende vragen verschijnen alleen wanneer een specifieke conditie geldt (value < 50 + lage quality, hoge value + lage momentum = value-trap-vraag, lowVol < 40, mispricing-signaal aanwezig, etc.). Geen LLM-driven personalisatie.
+
+### Aannames
+- **Holding-context is optioneel.** Een dossier kan ook gemaakt worden voor een ticker die *niet* in de portefeuille zit — dan ontbreekt `holding`/`valuation`/`rebalance` en verschijnt "portefeuille-context" in `missingData`. Maakt de tool ook bruikbaar voor screener-/watchlist-onderzoek (later uitbreidbaar via API-call vanaf `/screener`).
+- **Mispricing- en opportunity-radar input is optioneel.** De huidige API-loader passeert ze als `null`. Toekomstige uitbreiding kan deze in dezelfde call meefetchen — de context-builder accepteert ze al via `BuildResearchContextInput`. Daardoor breekt de UI niet wanneer ze later aangeschakeld worden.
+- **Factor-score wordt server-side berekend.** De loader roept `scoreFactors` aan zelfs voor portefeuille-tickers, want de holding-row in de UI heeft de score wel maar de loader krijgt alleen een ticker-string. Cache (fundamentals + history) maakt dit goedkoop.
+- **Renderer is puur, geen `now`-fallback.** De `generatedAt` komt uit `buildResearchContext` (default `new Date().toISOString()`, override via `now`). Tests gebruiken vaste `now` en krijgen bit-identieke output.
+- **Prompt-payload niet bekijkbaar via API.** De huidige route geeft alleen `{ dossier, diagnostics }` terug, geen prompt-payload (anders dan `/api/ai/explain` waar `includePrompt` debug-flag bestaat). Kan later toegevoegd worden zodra de LLM-swap landt.
+- **Engine-keuze.** Opus 4.7 (1M context) voor deze module: 7 engines (factor / fundamentals / classifier / rebalance / mispricing / opportunity / valuation) moesten consistent worden samengevoegd in één type-schoon dossier-shape, plus prompt-payload-design en sheet-UI. Voor latere toevoeging van LLM-driven polishing zou Sonnet 4.6 of Haiku 4.5 volstaan, met de bestaande validator (`validateAiOutputAgainstContext`) als guardrail.
+
+### Validatie
+- `npm test` → **700/700 tests groen** (+16 research-dossier: 5 context, 5 renderer, 1 determinisme, 2 prompt, 3 validator).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; nieuwe route `/api/ai/research-dossier` (dynamic) staat in de route-tabel; `/portfolio` bundlet de nieuwe knop + sheet.
+
+## [Unreleased] - 2026-04-25 · Strategy Evidence (/backtest tab "Bewijs")
+
+### Added
+- [`src/lib/analytics/backtest/evidence/types.ts`](src/lib/analytics/backtest/evidence/types.ts) — centrale typedefs: `RegimeBreakdownRow`, `RollingWindowEntry`, `RollingWindowSummary`, `UnderperformancePeriod`, `DcaContributionSimulation`, `BenchmarkRegretScore`, `DrawdownRecoveryEntry`, `DrawdownRecoverySummary`, `EvidenceVerdict`, `StrategyEvidenceReport`. Alle metrics zijn fracties (0.08 = 8%); periodes zijn ISO-datums.
+- [`src/lib/analytics/backtest/evidence/shared.ts`](src/lib/analytics/backtest/evidence/shared.ts) — gedeelde pure helpers: `clamp`, `totalReturnOverValues`, `annualiseReturn`, `monthlyReturns`, `extractStrategyValues`, `extractBenchmarkValues`, `hasCompleteBenchmark`, `toIsoDateOnly`, `sum`, `average`, `round2`, `round4`.
+- [`src/lib/analytics/backtest/evidence/rolling-windows.ts`](src/lib/analytics/backtest/evidence/rolling-windows.ts) — `computeRollingReturns({ points, windowMonths })`. Genereert overlappende N-maands vensters met strategie- en benchmark-return + excess. Bepaalt `worst`, `best`, `negativeCount` en `negativeShare` voor de UI.
+- [`src/lib/analytics/backtest/evidence/regime-breakdown.ts`](src/lib/analytics/backtest/evidence/regime-breakdown.ts) — groepeert maand-op-maand returns per `MarketRegimeState` en levert per regime: total + annualised return strategie, idem voor benchmark (indien volledig aanwezig), excess. Vaste sortering (expansion → recovery → slowdown → recession → unknown) voor consistente UI.
+- [`src/lib/analytics/backtest/evidence/underperformance.ts`](src/lib/analytics/backtest/evidence/underperformance.ts) — `detectUnderperformancePeriods` detecteert aaneengesloten maanden waarin de strategie achter benchmark liep. Drempels: `minMonths` (default 3), `minShortfall` (default 2%). Sortering op excess-return asc (slechtste eerst).
+- [`src/lib/analytics/backtest/evidence/dca-simulation.ts`](src/lib/analytics/backtest/evidence/dca-simulation.ts) — `computeDcaSimulation` simuleert maandelijkse inleg op de strategie-returns én benchmark-returns. Money-weighted return berekend via bisection-IRR over alle cashflows (annualised). Levert `totalContributed`, `finalValue`, `profit` voor zowel strategie als benchmark.
+- [`src/lib/analytics/backtest/evidence/benchmark-regret.ts`](src/lib/analytics/backtest/evidence/benchmark-regret.ts) — composite regret-score (0..100) op basis van: 0.4 × frequentie van underperformance-maanden + 0.3 × gemiddelde maandelijkse shortfall (gecapt op 5%) + 0.3 × max cumulatieve achterstand (log-space, gecapt op 30%). Retourneert `null` zonder complete benchmark.
+- [`src/lib/analytics/backtest/evidence/drawdown-recovery.ts`](src/lib/analytics/backtest/evidence/drawdown-recovery.ts) — peak → trough → recovery cyclus-detector. Drempel `minDepth` (default -5%). Levert per cyclus: `peakDate`, `troughDate`, `recoveryDate` (null = nog open), `depth`, `monthsToTrough`, `monthsToRecovery`. Summary-velden: `longestRecoveryMonths`, `averageRecoveryMonths`, `inProgress`.
+- [`src/lib/analytics/backtest/evidence/verdict.ts`](src/lib/analytics/backtest/evidence/verdict.ts) — pure `buildEvidenceVerdict` genereert NL-headline + highlights + limitations + numerieke `confidence` uit getelde inputs. **Geen LLM-calls**: alle zinnen zijn string-templates. Limitations triggeren automatisch bij sample < 36m, sample < 120m, ontbrekende benchmark, < 12 rolling-windows.
+- [`src/lib/analytics/backtest/evidence/engine.ts`](src/lib/analytics/backtest/evidence/engine.ts) — `buildEvidenceReport({ result, strategyLabel, benchmarkLabel, config })` orkestrator. Pure functie over een `BacktestResult`. Aanvaardt config-overrides voor TTL, drempels en DCA-parameters; default DCA gebruikt `result.config.monthlyContribution`.
+- [`src/lib/analytics/backtest/evidence/index.ts`](src/lib/analytics/backtest/evidence/index.ts) — barrel-export.
+- [`src/lib/analytics/backtest/evidence/*.test.ts`](src/lib/analytics/backtest/evidence) — **35 nieuwe tests** verdeeld over rolling-windows (5), regime-breakdown (5), underperformance (5), DCA (6), regret (4), drawdown-recovery (5), engine-orkestrator (5). Inclusief deterministisme-test, null-paden, drempel-edge-cases.
+- [`src/app/(app)/backtest/components/evidence-tab.tsx`](src/app/(app)/backtest/components/evidence-tab.tsx) — pure presentationele tab. Volgorde: kernconclusie + beperkingen → worst/best 12m → rolling-distributie → regime-breakdown → underperformance-lijst → drawdown recovery → benchmark regret → DCA-simulatie. Alle cijfers uit de engine; UI doet geen rekenwerk.
+- [`src/app/(app)/backtest/components/tab-nav.tsx`](src/app/(app)/backtest/components/tab-nav.tsx) — server-component tab-navigatie via Next `<Link>`. Tabs: `Headline` en `Bewijs`. Behoudt alle bestaande searchParams (strategy, years, benchmark, cost) bij tab-switches.
+
+### Changed
+- [`src/lib/analytics/backtest/index.ts`](src/lib/analytics/backtest/index.ts) — `export * from "./evidence"`.
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — selectief geëxporteerd: `buildEvidenceReport`, `buildEvidenceVerdict`, `computeRollingReturns`, `computeRegimeBreakdown`, `detectUnderperformancePeriods`, `computeDcaSimulation`, `computeBenchmarkRegret`, `computeDrawdownRecovery`, plus alle types. (Aansluiten bij bestaande selective re-export-stijl van de backtest-module.)
+- [`src/app/(app)/backtest/page.tsx`](src/app/(app)/backtest/page.tsx) — leest nu `tab` uit searchParams, rendert `<TabNav>`, en switcht tussen de bestaande "Headline" tab (metrics + equity-chart) en de nieuwe "Bewijs" tab. Het evidence-report wordt **altijd** berekend wanneer er een equity-curve is, zodat tab-switches geen extra fetches kosten.
+
+### Design-regels
+- **Engine is volledig puur.** `buildEvidenceReport` heeft geen `new Date()` fallback in de berekeningen — alleen voor `generatedAt` (en die is via `config.now` overridable). Tests draaien met vaste `now` en krijgen bit-identieke output.
+- **Geen LLM, geen verzonnen cijfers.** De NL-headline en highlights worden gegenereerd uit getelde inputs (CAGR, regret-score, langste recovery, slechtste 12m). AI mag deze zinnen later samenvatten/herformuleren, maar mag geen cijfers verzinnen.
+- **Beperkingen expliciet.** `verdict.limitations[]` is verplicht ingevuld bij kleine sample (< 36m / < 120m), ontbrekende benchmark of onvoldoende rolling-windows. UI toont deze als amber-flagged lijst onder de headline.
+- **Onzekerheid in confidence.** Numerieke `verdict.confidence` (0..1) bouwt op vanaf 0.5 met +0.15 voor ≥ 60m sample, +0.15 voor ≥ 120m, +0.1 bij benchmark, +0.1 bij ≥ 24 rolling-windows. UI toont dit als percentage.
+- **Underperformance toont waarom.** Periodes worden niet alleen geteld; elk item toont strategie-return, benchmark-return en excess zodat de gebruiker direct ziet hoe groot de achterstand was en in welke periode.
+- **Regret is een composite met expliciete formule.** Drie componenten met vaste gewichten (0.4 / 0.3 / 0.3) en explicit caps. Reproduceerbaar uit dezelfde equity-curve.
+- **DCA als IRR-benadering.** Money-weighted return via bisection over een [-99%/jaar, 12×/jaar] interval, 80 iteraties, tolerance 1e-6. Genoeg precisie voor realistische DCA-scenario's. Maandelijkse cashflows (-contributie) + final lift-out van eindwaarde.
+- **UI doet geen businesslogica.** Geen drempel-checks, geen severity-berekeningen, geen tweet-generatie in `evidence-tab.tsx`. Alle waarden komen direct uit de engine.
+
+### Aannames
+- **12-maands venster default.** Rolling-window = 12 maanden — match met hoe particuliere beleggers hun jaarrendement evalueren. Configureerbaar via `config.rollingWindowMonths` in de orchestrator.
+- **Underperformance-drempels conservatief.** Default `minMonths = 3` en `minShortfall = 2%` — kleinere wiebels worden weggelaten zodat de UI geen ruis toont. Aanpasbaar vanuit de aanroepende code.
+- **Drawdown-min-depth 5%.** Cycli kleiner dan 5% zijn typisch maandelijkse ruis; we tonen alleen serieuzere bewegingen. Verstelbaar via `config.drawdownMinDepth`.
+- **DCA-default = `monthlyContribution` uit BacktestConfig.** Wanneer de gebruiker geen aparte DCA-bedragen opgeeft, simuleert het report exact de cashflow die ook al in de equity-curve zit. Voorkomt dat tab-switches verschillende verhalen vertellen.
+- **Regret-formule is een keuze, geen academische standaard.** De gewichten 40/30/30 zijn pragmatisch: frequentie (psychologisch zwaar), magnitude (per-maand pijn), depth (cumulatieve achterstand). Caps op 5% maandelijkse shortfall en 30% cumulatieve achterstand zorgen dat de score in een realistisch bereik blijft.
+- **Tab-switching herberekent niet.** Het evidence-report is een pure functie over de equity-curve die *toch al* gemaakt werd; serveren we 'm voor beide tabs. Goedkoper dan client-side state of een extra round-trip.
+- **Engine-keuze.** Opus 4.7 (1M context) voor deze module: 7 deelanalyses + types + UI + barrel-exports + tests moeten consistent blijven met bestaande backtest- en regime-types. Voor latere uitbreiding van een enkele analytic (bv. nieuwe Sortino-tabel) zou Sonnet 4.6 volstaan.
+
+### Validatie
+- `npm test` → **684/684 tests groen** (+35 evidence: 5 rolling, 5 regime, 5 underperformance, 6 DCA, 4 regret, 5 drawdown-recovery, 5 engine).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/backtest` (dynamic) bundlet de nieuwe Bewijs-tab + EvidenceTab component.
+
+## [Unreleased] - 2026-04-25 · Hunting List (watchlist → actieve kansenlijst)
+
+### Database (Prisma schema)
+- [`prisma/schema.prisma`](prisma/schema.prisma) — `WatchlistItem` uitgebreid met optionele config-velden: `targetPriceHigh` (Decimal), `buyZoneTolerance` (Float), `valuationMaxPE` (Float), `valuationMinFcfYield` (Float). Alle bestaande rijen blijven werken omdat elk nieuw veld nullable is. Nieuw: `signalLogs` back-relation naar `HuntingSignalLog`.
+- [`prisma/schema.prisma`](prisma/schema.prisma) — nieuwe append-only `HuntingSignalLog` model voor opportunity-history. Fields: `id`, `userId`, `watchlistItemId`, `ticker`, `triggerType`, `severity`, `price`, `currency`, `pe`, `fcfYield`, `rationale` (JSON-string), `note`, `firedAt`, `expiresAt`. Indexes op `(userId, ticker, firedAt)`, `(userId, firedAt)` en `expiresAt` zodat de UI snel kan pullen. User-relation toegevoegd (`huntingSignalLogs`).
+- **Migratie vereist**: draai `npm run prisma:migrate` (dev) of `npx prisma db push` op de server om de nieuwe kolommen + tabel te provisionen. De app compileert en typecheckt onafhankelijk (na `prisma generate`), maar persistentie werkt pas na de DB-migratie.
+
+### Added
+- [`src/lib/analytics/hunting-list/types.ts`](src/lib/analytics/hunting-list/types.ts) — centrale typedefs: `HuntingStatus` (`watching` / `near-target` / `signal-active` / `expired`), `HuntingTriggerType` (`target-zone-reached` / `target-zone-near` / `valuation-band-reached`), `HuntingAlertSeverity` (`NONE` / `LOW` / `MEDIUM` / `HIGH`). NL-labels + descriptions mee-geëxporteerd zodat UI en eventuele API consistent blijven. `resolveHuntingConfig` normaliseert nullable Prisma-decimals naar typed config.
+- [`src/lib/analytics/hunting-list/expiry.ts`](src/lib/analytics/hunting-list/expiry.ts) — pure helpers: `isTriggerExpired`, `partitionTriggers`, `computeExpiresAt`. Losgetrokken zodat UI-componenten rechtstreeks kunnen filteren op "verlopen" zonder de engine aan te roepen.
+- [`src/lib/analytics/hunting-list/target-zone.ts`](src/lib/analytics/hunting-list/target-zone.ts) — detector met twee modi: (1) expliciete band `[targetPrice, targetPriceHigh]` → HIGH binnen de band, HIGH onder de ondergrens, MEDIUM binnen tolerantie boven de bovenzijde; (2) enkele `targetPrice` + tolerantie-marge → HIGH ≤ target, LOW (`target-zone-near`) binnen `target × (1 + tolerance)`. Default TTL 14 dagen.
+- [`src/lib/analytics/hunting-list/valuation-band.ts`](src/lib/analytics/hunting-list/valuation-band.ts) — detector voor user-gedefinieerde fundamentals-drempels (`valuationMaxPE`, `valuationMinFcfYield`). Severity: HIGH wanneer beide drempels geconfigureerd én doorbroken, MEDIUM bij ≥ 10% marge boven/onder drempel, LOW precies op drempel. Default TTL 30 dagen. Half-signalen (één doorbroken, andere nog niet) krijgen een explicit rationale-regel.
+- [`src/lib/analytics/hunting-list/engine.ts`](src/lib/analytics/hunting-list/engine.ts) — pure orkestrator `evaluateHuntingList(input)`. Per-item status-priority: (1) actieve MEDIUM/HIGH trigger → `signal-active`; (2) actieve LOW trigger → `near-target`; (3) verlopen triggers of history-entries → `expired`; (4) default → `watching`. Severity-aggregatie via `maxSeverity`-helper. Data-quality warnings voor ontbrekende quote, ontbrekende fundamentals bij valuation-config, of volledig ontbrekende config. Sorteert op severity desc, dan alfabetisch.
+- [`src/lib/analytics/hunting-list/index.ts`](src/lib/analytics/hunting-list/index.ts) — barrel-export.
+- [`src/lib/analytics/hunting-list/*.test.ts`](src/lib/analytics/hunting-list) — **36 nieuwe tests** over de detectoren + engine: target-zone (alle 3 severities en null-paden), valuation-band (alle severity-drempels, half-signalen), engine (status-afleiding, trigger-bundeling, history-interactie met expired status, data-quality warnings, distributies, sortering, determinisme).
+- [`src/lib/data/hunting-list-repository.ts`](src/lib/data/hunting-list-repository.ts) — Prisma-gebaseerde repository. `listItemsByEmail` mapt `WatchlistItem` rows met Decimal-coercion naar typed TS shape. `listRecentHistoryForUser` bundelt `HuntingSignalLog` rows per ticker (sorted desc). **Idempotent `upsertActiveSignal`**: schrijft alleen een nieuw log-record wanneer er nog geen niet-verlopen row bestaat van hetzelfde `(userId, ticker, triggerType)` — dit voorkomt tick-stream-vervuiling en maakt opportunity-history betekenisvol.
+- [`src/app/(app)/kansen/load-hunting-list.ts`](src/app/(app)/kansen/load-hunting-list.ts) — server-only data-loader. Parallel-fetch: watchlist-items + quotes + fundamentals + recent history; daarna pure engine-call; daarna best-effort persist van actieve triggers in `HuntingSignalLog`. Graceful degradation: DB-fouten worden gelogd via `log.warn` zonder de UI te breken.
+- [`src/app/(app)/kansen/components/hunting-list-card.tsx`](src/app/(app)/kansen/components/hunting-list-card.tsx) — UI-kaart op `/kansen`. Per item: status-badge (met Binoculars/Target/Crosshair/Timer icoon), severity-badge, status-uitleg, metrics-grid (koers / target-zone / valuation-drempel / actieve triggers), per-trigger sub-card met label + rationale-bullets + **verplichte keerzijde-regel** + snapshot van prijs/P/E/FCF, data-quality warnings, en een opportunity-history strip met de laatste 5 firing-moments. Empty-state wanneer de user geen watchlist-items heeft. Status-summary (grid van 4 tellers) bovenaan.
+
+### Changed
+- [`src/types/watchlist.ts`](src/types/watchlist.ts) — uitgebreid met optionele `targetPriceHigh`, `buyZoneTolerance`, `valuationMaxPE`, `valuationMinFcfYield`. Backwards-compatible — alle nieuwe velden zijn `?: number | null`.
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./hunting-list"`.
+- [`src/lib/data/index.ts`](src/lib/data/index.ts) — `export { huntingListRepository }`.
+- [`src/app/(app)/kansen/page.tsx`](src/app/(app)/kansen/page.tsx) — nieuwe sectie "Hunting list" bovenaan (boven de Mispricing Scanner sectie). De hunting-list-call doet mee in de bestaande parallel-`Promise.all` samen met opportunity-radar + mispricing-scanner, faal-safe met `.catch(() => null)`.
+
+### Design-regels
+- **Engine is puur.** `evaluateHuntingList` heeft geen `new Date()` fallback behalve via de expliciete `config.now` override. Tests draaien met een vaste `now` en krijgen bit-identieke output. Expiry-logica (`computeExpiresAt`, `isTriggerExpired`) is een aparte helper zodat UI én engine dezelfde regels volgen.
+- **Business-logic buiten UI.** De `HuntingListCard` leest alleen velden uit `HuntingListReport`. Geen if/else over thresholds, geen eigen severity-berekening, geen eigen status-string.
+- **Idempotente persistentie.** De loader schrijft maximaal één log-row per actieve trigger per TTL-window. Een target-zone-hit die 10 dagen onafgebroken aanstaat produceert **één** log-entry, geen 10 keer per page-refresh.
+- **Explainability verplicht.** Elke trigger draagt `rationale[]` (wat exact werd gemeten) én `riskNote` (wat kan misgaan, kort NL). UI toont beide onder elkaar in elke trigger-card.
+- **Onzekerheid zichtbaar.** Status-uitleg staat altijd onder de badge. `dataQuality.warnings` toont expliciet wanneer een quote of fundamentals-fetch is mislukt, of wanneer de user helemaal geen config heeft ingesteld (→ item blijft op `watching`).
+- **Auto-expiry hardcoded in engine.** Target-zone triggers: 14 dagen TTL. Valuation-band triggers: 30 dagen. Overridebaar via `config.targetSignalTtlDays` / `config.valuationSignalTtlDays` in de engine-aanroep, maar de defaults zijn bewust kort zodat een signaal dat weken aanstaat niet verzilt in een permanent koopsignaal.
+- **Geen leverage, geen auto-execution.** Het type-systeem bevat geen order-velden. De UI toont alleen observaties en de `riskNote` spreekt expliciet uit: "controleer risico, allocatie en kwaliteit voordat je instapt".
+- **AI mag alleen uitleggen.** De rationale-zinnen zijn string-templates over gemeten cijfers. Geen LLM-calls in detectoren of engine.
+
+### Aannames
+- **Watchlist blijft naamgeving in de DB.** De tabelnaam `WatchlistItem` blijft staan (minder breekbare migratie); de TS-laag en UI gebruiken "Hunting list" als productnaam. Bestaande code die `prisma.watchlistItem` aanroept blijft werken, nieuwe velden zijn optioneel.
+- **History is event-driven, niet periodic.** Een nieuwe log-row verschijnt zodra een trigger van `inactive → active` gaat (of een vorige TTL-window verlopen is). Dit is het juiste niveau voor "opportunity history": een gebruiker wil weten *wanneer* een trigger is afgegaan, niet tick-voor-tick.
+- **Status-prioriteit.** `signal-active > near-target > expired > watching`. Een item met zowel een actieve HIGH-trigger als een verlopen LOW-trigger telt als `signal-active`. Een item zonder actieve triggers maar met history-entries toont `expired` (niet `watching`) zodat de gebruiker ziet dat er iets gebeurd is.
+- **Fundamentals-refresh is extern.** De valuation-band detector vertrouwt op `getFundamentals(ticker)` (zelfde provider als screener); als de provider-cache stale is blijft de engine consistent op de cached ratio. Voor échte real-time triggers moet de cache-TTL daar gerespecteerd worden.
+- **Buy-zone tolerance default 5%.** Wanneer de user geen expliciete tolerantie of `targetPriceHigh` opgeeft, interpreteert de engine "binnen 5% boven target" als `near-target`. Configureerbaar per item via `buyZoneTolerance` (0..1) of een expliciete band.
+- **Engine-keuze.** Opus 4.7 (1M context) voor deze module: raakt Prisma schema + engine + repository + loader + UI + CHANGELOG tegelijk, en moet consistent blijven met bestaande radar/mispricing-design. Voor latere uitbreidingen (extra trigger-types) zou Sonnet 4.6 volstaan.
+
+### Validatie
+- `npm test` → **649/649 tests groen** (+36 hunting-list: 12 target-zone, 10 valuation-band, 14 engine).
+- `npx prisma generate` → succesvol (nieuwe types voor `WatchlistItem.targetPriceHigh`/`buyZoneTolerance`/`valuationMaxPE`/`valuationMinFcfYield` + `HuntingSignalLog` model).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/kansen` bundled met de nieuwe hunting-list-sectie.
+- `npm run prisma:migrate` moet op de server draaien om de nieuwe kolommen + `HuntingSignalLog` tabel aan te maken voordat persistentie activeert.
+
+## [Unreleased] - 2026-04-25 · Mispricing Scanner
+
+### Added
+- [`src/lib/analytics/mispricing/types.ts`](src/lib/analytics/mispricing/types.ts) — centrale typedefs voor de scanner: `MispricingSignal`, `MispricingCandidate`, `MispricingReport`, `MispricingDataQualityAssessment` + 9 stabiele `MispricingRiskFlagCode` waarden met NL-labels (`value-trap`, `earnings-deterioration-unknown`, `thin-peer-basket`, `small-sample-volatility`, `short-history`, `single-source-fundamentals`, `sentiment-proxy-only`, `quality-degradation-unknown`, `momentum-reversal-fragile`). Elk signaal draagt `mispricingScore` (0..100), numerieke `confidence` (0..1), afgeleide `confidenceTier` (HIGH/MEDIUM/LOW), `expectedHoldingPeriodDays`, verplichte `riskFlags[]`, `rationale[]`, `riskNote`, `detectedAt` én **`expiresAt`** zodat signalen automatisch vervallen.
+- [`src/lib/analytics/mispricing/shared.ts`](src/lib/analytics/mispricing/shared.ts) — gedeelde pure helpers (`clamp`, `scaleStrength`, `pctChange`, `trailingReturn`, `logReturns`, `stdev`, `annualizedVol`, `realizedVolOverWindow`, `median`, `computeExpiresAt`). Alles numeriek en deterministisch.
+- [`src/lib/analytics/mispricing/valuation-gap.ts`](src/lib/analytics/mispricing/valuation-gap.ts) — detector 1/4. Triggert bij P/E-discount ≥ 25% t.o.v. sector-mediaan, eigen 5y-mediaan, of FCF-yield premium ≥ 20%. Default holding-periode: 365 dagen. Plakt `value-trap` + (bij onbekende quality) `earnings-deterioration-unknown` flags.
+- [`src/lib/analytics/mispricing/peer-dislocation.ts`](src/lib/analytics/mispricing/peer-dislocation.ts) — detector 2/4. Vergelijkt 12m-return met sector-peer-basket (min. 3 peers, safe ≥ 6). Triggert bij ≥ 10% achterstand op peer-mediaan. Default holding-periode: 180 dagen. Accepteert optionele `fundamentalsStable` boolean; zonder die input: lagere confidence + `earnings-deterioration-unknown` flag.
+- [`src/lib/analytics/mispricing/quality-price-divergence.ts`](src/lib/analytics/mispricing/quality-price-divergence.ts) — detector 3/4. Quality ≥ 70 én 12m-return ≤ -10%. Accepteert optionele `priorFactorScore`: als quality meetbaar is gedaald (-10pt of meer) retourneert detector `null` i.p.v. een signaal te triggeren op een echte degradatie. Default holding-periode: 270 dagen.
+- [`src/lib/analytics/mispricing/sentiment-price-divergence.ts`](src/lib/analytics/mispricing/sentiment-price-divergence.ts) — detector 4/4. Twee routes: (1) expliciete `sentimentScore ≥ 0.7` gecombineerd met 20d-return ≤ -5%; (2) volatility-proxy wanneer geen sentiment-feed: lowVol ≥ 65 + 20d/200d vol-ratio ≥ 1.5. Proxy-route krijgt verplicht `sentiment-proxy-only` flag en cap op confidence (≤ 0.6). Default holding-periode: 90 dagen.
+- [`src/lib/analytics/mispricing/scanner.ts`](src/lib/analytics/mispricing/scanner.ts) — pure orkestrator `scanMispricing(input)`. Draait alle 4 detectoren per ticker, bundelt signalen, berekent `aggregateScore = max(strength) × diversity-bonus` (cap 1.2), strength-gewogen `aggregateConfidence`, mediane holding-periode en `earliestExpiresAt` (kandidaat vervalt zodra éérste signaal verloopt). Sorteert op score → #signalen → confidence → alfabetisch. `config.signalTtlDays` wordt geclampt naar ≥ 1.
+- [`src/lib/analytics/mispricing/load.ts`](src/lib/analytics/mispricing/load.ts) — server-only I/O-loader. Gebruikt `runScreen` voor een brede pool (default 40), groepeert op sector voor peer-baskets, berekent sector-mediane P/E + FCF-yield als benchmark, fetcht 400d history per ticker parallel. Levert diagnostics (`missingHistory`, `missingFundamentals`, `sectorsRepresented`) zodat de UI transparant is over data-dekking. Heuristische `deriveFundamentalsStable`: positief operating-margin + ROE én TTM-revenue-growth ≥ -10%.
+- [`src/lib/analytics/mispricing/index.ts`](src/lib/analytics/mispricing/index.ts) — barrel-export.
+- [`src/lib/analytics/mispricing/*.test.ts`](src/lib/analytics/mispricing) — **47 nieuwe tests** over de 4 detectoren + scanner: happy-paths per threshold, null-paden, risk-flag emissies, strength-orderingen, expiry-berekening, determinisme en TTL-clamping.
+- [`src/app/api/analytics/mispricing/route.ts`](src/app/api/analytics/mispricing/route.ts) — `GET /api/analytics/mispricing` API-route. Auth via bestaande `resolveUser` (cookie of dev-header). Query-params (optioneel): `limit` (1..50), `minScore` (0..100), `ttl` (1..180), `universeLimit` (1..80). Response: `{ report, diagnostics }`. Response-cache: `private, max-age=60, stale-while-revalidate=300` zodat herhaalde page-refreshes niet elke keer 40 tickers her-fetchen.
+- [`src/app/(app)/kansen/components/mispricing-card.tsx`](src/app/(app)/kansen/components/mispricing-card.tsx) — presentationele card op /kansen. Toont per kandidaat: aggregate-score, confidence-tier + numerieke %, samenvatting, metrics (holding-periode, vervaldatum + resterende dagen, #signalen), per-signaal sub-card met label + score + confidence + holding, rationale-bullets, expliciete `Keerzijde:` regel en risk-flag badges. Empty-state wanneer de scan niks oplevert. Alle cijfers komen kant-en-klaar uit de engine; UI doet geen rekenwerk.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./mispricing"`.
+- [`src/app/(app)/kansen/page.tsx`](src/app/(app)/kansen/page.tsx) — parallelle fetch van opportunity-radar + mispricing-scanner via `Promise.all`. `MispricingCard` wordt onder de radar-sectie gerenderd (alleen wanneer de scan slaagt; faal-safe op null). Geen impact op bestaande radar-sectie of dashboard-widget.
+
+### Design-regels
+- **Geen koopadvies zonder risico-uitleg.** Elk signaal draagt verplicht `riskNote` (wat kan misgaan) + `riskFlags[]` (gestructureerd) + `rationale[]` (wat triggerde het). UI toont alle drie onder elke signaal-card.
+- **Geen leverage, geen auto-execution.** Het type-systeem heeft bewust geen `orderSize`, `leverage`, `executionVenue` of vergelijkbare velden. API retourneert alleen observaties, geen actieverzoeken.
+- **Signal auto-expiry.** Elk signaal krijgt `expiresAt = detectedAt + signalTtlDays`. Kandidaat-niveau exposet `earliestExpiresAt` — zodra één signaal verloopt valt de kandidaat buiten de scan. UI toont resterende dagen.
+- **Reproduceerbaar.** Alle detectoren zijn pure functies met expliciete drempels als `const` bovenaan het bestand. Identieke input → identieke output, getest via het `determinisme`-testblok.
+- **Onzekerheid zichtbaar.** Numerieke confidence (0..1) én tier-label; risk-flags voor elke onzekere datapunt (thin basket, proxy-only, unknown degradation). Bij `dataQuality.met === false` krijgt de UI een amber warning onder de signaal-card.
+- **Engine buiten UI.** UI-component (`mispricing-card.tsx`) bevat geen thresholds, percentages of tellers — alles komt uit `scanMispricing`.
+- **AI mag alleen uitleggen.** De detectoren bevatten geen LLM-calls. De geschreven NL-rationale-zinnen zijn string-templates over de gemeten cijfers. Toekomstige `/chat`-integratie mag samenvatten maar niet scores verzinnen.
+
+### Aannames
+- **Sector-mediaan als P/E-benchmark.** We hebben geen externe sector-index feed; de mediaan wordt per scan berekend uit de screener-pool (min. 3 tickers per sector). Dit is intern-consistent maar kan afwijken van brede industrie-benchmarks.
+- **5-jaar historische mediaan P/E niet beschikbaar.** De loader zet `historicalMedianPE: null`; alleen de sector-discount + FCF-premium routes triggeren in productie. Zodra we fundamentals-snapshots historiseren, kan de historische route ingeschakeld worden zonder detector-wijziging.
+- **`fundamentalsStable` heuristiek is conservatief.** Positief operating-margin + ROE én TTM-revenue-growth ≥ -10%. Dit voorkomt dat de scanner kandidaten met duidelijk verslechterende cijfers als "dislocatie" bestempelt — maar blijft defensief: bij missende data retourneert hij `null` en krijgt het signaal een `earnings-deterioration-unknown` flag.
+- **Sentiment = volatility-proxy tot er een feed is.** Zonder news/flow feed gebruikt de sentiment-detector 20d/200d realized-vol ratio + lowVol factor als indirect sentiment-proxy. Deze route cap't confidence bij 0.6 en flag't altijd `sentiment-proxy-only`. Expliciete sentiment-scores (0..1) uit een toekomstige provider worden direct geaccepteerd.
+- **Signal-TTL default 30 dagen.** Fundamentals worden typisch per kwartaal gepubliceerd; signalen gebaseerd op drie maanden oude inputs vervallen voordat nieuwe cijfers uit zijn. Configureerbaar via API (`ttl`) of loader-argument.
+- **Diversity-bonus cap 1.2 (vs. 1.25 in opportunity-radar).** Mispricing-signalen correleren sterker (valuation + peer-dislocation gaan vaak samen bij uitverkochte namen). Conservatievere cap voorkomt scores >100 voor 2 correlated drivers.
+- **Scanner gebruikt de bestaande screener-pool.** Geen tweede universum-definitie. Dit houdt één canonieke bron voor "welke tickers scoren we" en laat filter-tuning op `screener.ts` ook mispricing-coverage sturen.
+- **Engine-keuze.** Deze module draait op Opus 4.7 (1M context) omdat het type-systeem én de scoring-regels gelijktijdig consistent moeten blijven over vijf bestanden + UI + API. Voor routine-detector-uitbreidingen (bv. nieuwe risk-flag codes) volstaat Sonnet 4.6.
+
+### Validatie
+- `npm test` → **613/613 tests groen** (+47 mispricing tests: 10 valuation-gap, 7 peer-dislocation, 9 quality-divergence, 9 sentiment, 12 scanner).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; nieuwe route `/api/analytics/mispricing` (dynamic) staat in de route-tabel; `/kansen` bundelt de MispricingCard.
+
+## [Unreleased] - 2026-04-24 · Opportunity Radar + /kansen
+
+### Added
+- [`src/lib/analytics/opportunity-radar/types.ts`](src/lib/analytics/opportunity-radar/types.ts) — `OpportunitySignal` / `OpportunityCandidate` / `OpportunityReport` types met 8 signaaltypes (quality-pullback, value-dislocation, momentum-reversal, watchlist-target, underweight-high-conviction, etf-core-rebalance, defensive-bargain, earnings-sentiment-placeholder). Elke signal draagt verplicht `rationale[]` + `riskNote`. Labels en tone-map zijn mee-geëxporteerd zodat page + dashboard widget dezelfde strings gebruiken.
+- [`src/lib/analytics/opportunity-radar/signals.ts`](src/lib/analytics/opportunity-radar/signals.ts) — 8 pure detector-functies, elk `(input) => OpportunitySignal | null`. Geen AI, geen gokwerk: als een threshold niet gehaald is of history ontbreekt → `null`. Expliciete drempels in comments, strength op 0..100 geschaald met gedeelde helpers (`scaleStrength`, `pctChange`, `highInWindow`).
+- [`src/lib/analytics/opportunity-radar/scoring.ts`](src/lib/analytics/opportunity-radar/scoring.ts) — `buildCandidate` aggregeert N signalen: composite = max(strength) × diversity-bonus (1 + 0.08 × (n−1), cap 1.25). Confidence weighted aggregation (HIGH=1.0, MEDIUM=0.6, LOW=0.3). NL-summary builder kiest het sterkste signaal als hoofdregel en hangt `+X ander(e) signa(l)(en)` achteraan. Filtert signalen onder `minSignalStrength` (default 40).
+- [`src/lib/analytics/opportunity-radar/engine.ts`](src/lib/analytics/opportunity-radar/engine.ts) — `scanOpportunities({ portfolio, screener, watchlist, regime, config })` orkestrator. Dedupliceert op ticker (portfolio > watchlist > screener als bron-prioriteit). Sorteert op score desc, tie-break op signaal-count en dan alfabetisch. Cap op `maxCandidates` (default 20). Retourneert `OpportunityReport` met `signalDistribution` over de getoonde kandidaten en `sourcesScanned` audit-trail.
+- [`src/lib/analytics/opportunity-radar/{signals,scoring,engine}.test.ts`](src/lib/analytics/opportunity-radar) — **51 nieuwe tests**: 28 signal-detectoren (triggers, null-paden, regime-interacties), 11 scoring (confidence-aggregatie, diversity-bonus, summary-pluralisatie), 12 engine (dedup, source-priority, filtering, signalDistribution).
+- [`src/app/(app)/kansen/load-opportunity-data.ts`](src/app/(app)/kansen/load-opportunity-data.ts) — server-only loader die de drie bronnen samenbrengt: portfolio-holdings (met parallel-fetch van 400d daily history, weight uit `view.valuations`, target = 1/n default, broad-market-ETF-flag via `classifyInstrument`), screener-universum (top-40 via `runScreen`, histories + quotes parallel, portfolio-dubbelen gefilterd), watchlist-items (uit Prisma met `targetPrice` decimal → number). Faal-safe op provider-uitval.
+- [`src/app/(app)/kansen/page.tsx`](src/app/(app)/kansen/page.tsx) — `/kansen` server-component. Hero-stats (candidates / totaal signalen / bron-telling), `OpportunityList` (main), `SignalDistributionCard` + `SourcesScannedCard` (sidebar), en een uitlegsectie "Hoe lees je deze pagina" met drie kern-principes (signalen ≠ adviezen, keerzijde verplicht, geen orderadvies).
+- [`src/app/(app)/kansen/loading.tsx`](src/app/(app)/kansen/loading.tsx) — skeleton die de page-layout weerspiegelt (stats-rij + main+sidebar + signaalverdeling).
+- [`src/app/(app)/kansen/components/opportunity-list.tsx`](src/app/(app)/kansen/components/opportunity-list.tsx) — lijst-wrapper met empty-state.
+- [`src/app/(app)/kansen/components/opportunity-row.tsx`](src/app/(app)/kansen/components/opportunity-row.tsx) — per-kandidaat card: ticker + naam + bron-badge (portfolio/screener/watchlist), composite score block (3 kleur-tiers), confidence-badge, summary-regel, koers, per-signaal sub-cards met rationale-bullets én een verplichte **"Keerzijde: …"** regel, warnings-lijst bij data-lacunes.
+- [`src/app/(app)/kansen/components/signal-distribution-card.tsx`](src/app/(app)/kansen/components/signal-distribution-card.tsx) — 8 rijen met count + horizontale balk, kleur via `SIGNAL_TONE` map.
+- [`src/app/(app)/kansen/components/sources-scanned-card.tsx`](src/app/(app)/kansen/components/sources-scanned-card.tsx) — audit-trail card (3 tellers + timestamp).
+- [`src/app/(app)/dashboard/components/top-kansen-card.tsx`](src/app/(app)/dashboard/components/top-kansen-card.tsx) — compacte dashboard-widget "Top kansen" met top-3 kandidaten (score, bron-badge, confidence-tier, top-signaal-label + "+X ander(e)"). Link naar `/kansen` via ArrowRight-CTA.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./opportunity-radar"`.
+- [`src/lib/navigation.ts`](src/lib/navigation.ts) — nieuwe nav-item `Kansen` (Sparkles-icoon) in groep `onderzoek`, gepositioneerd vóór `Screener`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — vervangt de screener-gebaseerde `TopOpportunitiesCard` (top-3 factor-composite) door de nieuwe `TopKansenCard` (radar met portfolio + screener + watchlist signalen). `runScreen`-call voor het dashboard verwijderd; in plaats daarvan `loadOpportunityData({ maxCandidates: 3 })` na `buildPortfolioView`. Fallback op lege lijst bij provider-uitval zodat de rest van het dashboard intact blijft.
+
+### Design-regels
+- **Geen trade-beslissing, geen AI als decider.** Elk signaal is een pure functie van holding-data / factor-scores / history. Ontbreekt input → `null`, geen gok.
+- **Explainability is verplicht.** Elke signal draagt `rationale` (wat triggerde het) én `riskNote` (wat kan misgaan: value trap, momentum fade, earnings surprise, …). Die keerzijde staat altijd op de UI-card onder de rationale.
+- **Composable scoring.** Meerdere signalen op dezelfde ticker geven een diversity-bonus (max +25%) maar de basis is de sterkste enkele hit — we claimen niet dat 3 correlated signalen 3× zo sterk zijn.
+- **Source-priority.** Portefeuille-positie > watchlist > screener: als een ticker in je portefeuille zit weegt de portefeuille-context (weight vs target, 12m return) zwaarder dan z'n plek in het universe.
+- **Deduplicatie expliciet.** Ticker kan in meerdere bronnen voorkomen; engine bundelt alle signalen op één kandidaat en kiest de hoogste-prio source voor display.
+- **Pure engine + I/O-loader split.** `scanOpportunities` is een pure functie, volledig test-baar met in-memory fixtures. Alle I/O (Prisma, quotes, history, regime) leeft in `load-opportunity-data.ts` zodat de engine deterministisch blijft.
+- **UI doet geen rekenwerk.** Strength-scores, composite, confidence-tier, summary-zin, warnings — alles komt kant-en-klaar uit `buildCandidate`. UI kiest alleen kleur-klassen en formatters.
+- **Keerzijde op elke card.** Elke rationale krijgt automatisch een Info-icoon met "Keerzijde: X". Dit dwingt de gebruiker om niet alleen de opportunity te zien maar ook waar het mis kan.
+
+### Aannames
+- **`targetWeight = 1/n` als default.** Portfolio-positie heeft geen expliciet target-gewicht (dat komt pas uit een custom policy). Uniforme target als baseline is voldoende om underweight-conviction en ETF-core-rebalance iets te geven om tegen af te zetten. Gebruikers met een policy-engine-plan krijgen straks betere targets door die door te geven aan de loader.
+- **Screener-universum top-40.** Genoeg dekking voor de pool zonder de quote/history-fetch te laten exploderen. Configurabel via `config.screenerLimit`.
+- **400 dagen history per ticker.** Genoeg voor 12m + 3m berekeningen plus buffer voor weekends/holidays. Cache (30 min TTL) dedupliceert herhaalde hits.
+- **`minSignalStrength = 40`** als ondergrens voor "tonen waard". Signalen onder 40 zijn te zwak om ruis te zijn. Op het dashboard (3 slots) gebruiken we dezelfde drempel maar slice op `maxCandidates: 3`.
+- **Earnings/sentiment is placeholder.** Detector retourneert altijd `null` tot er een earnings-feed is. Het type blijft in de distributie-tellers staan (= 0) zodat de UI niet hoeft te vertakken als we 'm later aanzetten.
+- **Diversity-bonus conservatief (cap 25%).** Signalen correleren vaak (value + momentum-reversal gaan samen bij uitverkochte namen). Een lineaire bonus zou overweging van drie correlated hits belonen; we kiezen voor een plafond.
+- **Geen watchlist-isin.** Prisma `WatchlistItem` heeft geen `isin` kolom; candidate krijgt `isin: null` tot de schema uitbreidt.
+
+### Validatie
+- `npm test` → **566/566 tests groen** (+51 nieuwe opportunity-radar tests, +0 regressies).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt, `/kansen` (dynamic) bundled, dashboard bundled zonder `runScreen`-import.
+
+## [Unreleased] - 2026-04-24 · /risico · concrete afbouwadviezen
+
+### Added
+- [`src/app/(app)/risico/components/rebalance-quantity-card.tsx`](src/app/(app)/risico/components/rebalance-quantity-card.tsx) — nieuwe presentationele component "Concrete afbouwadviezen". Rendert per positie (action ≠ `NO_ACTION`):
+  - Positie-naam + ticker + `actionLabel`-badge (`geen actie` / `licht afbouwen` / `stevig afbouwen` / `heroverwegen`).
+  - Confidence-badge (`Hoge zekerheid` / `Matige zekerheid` / `Onvoldoende data`) direct uit `RebalanceQuantityPlan.confidence`.
+  - Grid met 6-7 metrics: huidige weging, targetweging, aantal af te bouwen stuks, indicatief verkoopbedrag, weging na verkoop, excess t.o.v. target, (indien beschikbaar) huidige koers.
+  - Unit-label adaptief per asset class: `aandeel`/`aandelen` voor EQUITY/REIT, `unit`/`units` voor ETF, `stuks` voor fractionele shares of overige.
+  - Warnings-lijst onder de reason-regel wanneer de quantity-engine data-lacunes meldde (bv. last-known-prijs).
+  - Disclaimer: *"Indicatief, geen orderadvies; controleer altijd actuele brokerkoers."*
+  - `Geen posities boven de policy-cap`-empty-state wanneer er niks af te bouwen is.
+
+### Changed
+- [`src/lib/analytics/attention.ts`](src/lib/analytics/attention.ts) — `AttentionItem` krijgt optioneel `quantityPlan?: RebalanceQuantityPlan`. De `fromRebalance` builder zet 'm door vanuit de recommendation zonder rekenwerk en gebruikt `quantityPlan.reason` (indien aanwezig) als primaire message; anders valt 'ie terug op `rec.reasons[0]` of de default-tekst. `NO_ACTION` wordt nog steeds gefilterd.
+- [`src/lib/analytics/attention.test.ts`](src/lib/analytics/attention.test.ts) — 2 nieuwe tests: quantityPlan wordt doorgepompt (message bevat "verkoop 4 aandelen"), zonder quantityPlan valt message terug op reasons.
+- [`src/app/(app)/risico/components/attention-summary.tsx`](src/app/(app)/risico/components/attention-summary.tsx) — accepteert nu `baseCurrency` prop en toont een subregel onder de attention-message: *"Indicatief: verkoop 4 eenheden voor circa €7.000 — nieuwe weging ca. 10,53%."*. Bij ontbrekende koers: *"Onvoldoende koersdata — aantal niet te bepalen."*. Bij excess < 1 eenheid: *"Overschrijding kleiner dan één eenheid — geen concrete order nodig."*. Geen rekenwerk in UI; alle getallen komen uit `quantityPlan`.
+- [`src/app/(app)/risico/page.tsx`](src/app/(app)/risico/page.tsx):
+  - Nieuwe sectie "Concrete afbouwadviezen" boven "Wat vraagt aandacht" met `<RebalanceQuantityCard>`.
+  - Server-side `assetClassByTicker` map opgebouwd uit `portfolio.holdings` zodat de unit-labeling klopt zonder de holdings individueel door te geven.
+  - `AttentionSummary` krijgt `baseCurrency` mee voor de quantity-regel.
+
+### Design-regels
+- **UI doet geen rekenwerk**. Alle getallen (sharesToSell, amountToSell, postSellWeight, excessValue, reason) komen kant-en-klaar uit `RebalanceQuantityPlan`. De component kiest alleen kleur-klassen, labels en formatters.
+- **Nederlandse notatie overal**: `formatCurrency(value, baseCurrency)` en `formatNumber(value, fractionDigits)` uit [`src/lib/utils.ts`](src/lib/utils.ts) gebruiken `nl-NL` locale — `€ 7.000` i.p.v. `€7,000`. Percentages met komma via `.toFixed(2)` in string-templates.
+- **Onzekerheid zichtbaar**: `Onvoldoende data`-badge op LOW confidence, warning-regels met `AlertTriangle`-icoon, "—" in metric-velden zonder koers. Gebruikers zien expliciet wanneer een advies op dunne data rust.
+- **Disclaimer op de kaart, niet op elke rij**: vermijden van ruis. Disclaimer verwijst naar de broker omdat dit geen order-platform is.
+- **Niet-invasief voor bestaande UI**: alleen `AttentionSummary` signature wijzigt (extra `baseCurrency` prop, required). Het dashboard gebruikt deze component niet, dus geen ripple-effect.
+- **Filter op `action !== NO_ACTION` + `quantityPlan !== undefined`**: oude snapshots of recommendations zonder quantity-plan (bv. uit een oude backtest-run) crashen de UI niet — ze worden gewoon niet getoond in deze kaart.
+
+### Aannames
+- **Asset-class mapping per ticker** is voldoende voor unit-labeling. In multi-portfolio scenario's met dezelfde ticker in verschillende asset classes is dit niet volledig — maar dat komt nauwelijks voor (één ISIN = één asset class). Wanneer portfolios later gescheiden worden blijft dit werken omdat de map op page-niveau wordt opgebouwd.
+- **"Eenheden" als neutraal meervoud** in de AttentionSummary-regel: we hebben daar geen asset class map beschikbaar. De `RebalanceQuantityCard` gebruikt wél de specifieke labels ("aandelen"/"units"). Consistentie tussen beide is een potentiële UX-verbetering, niet nu nodig.
+- **Percentages afgerond op 2 decimalen** (`17,53%`). De voorbeeld-spec toont 17.53 dus we volgen dat. `postSellWeight` idem.
+- **Bedragen afgerond op hele euro's** in de quantity-regel (`maximumFractionDigits: 0`). Detailpagina had ook decimalen kunnen tonen maar ronde bedragen zijn leesbaarder bij een grove indicatie.
+- **Disclaimer-tekst** is bewust conservatief en juridisch-safe ("indicatief, geen orderadvies"). Wanneer we ooit directe broker-koppelingen toevoegen moet deze tekst naar een juristenronde.
+
+### Validatie
+- `npm test` → **515/515 tests groen** (+2 nieuwe attention-tests).
+- `npx tsc --noEmit` → schoon.
+- `npx next build` → slaagt, `/risico` bundled.
+
+## [Unreleased] - 2026-04-24 · Rebalance Quantity Engine
+
+### Added
+- [`src/lib/analytics/rebalance/rebalance-quantity.ts`](src/lib/analytics/rebalance/rebalance-quantity.ts) — pure `computeRebalanceQuantity(input)` functie die per positie het concrete afbouwplan berekent:
+  - `excessValue = max(0, currentValue - targetWeight × totalPortfolioValue)`
+  - `sharesToSell = floor(excessValue / currentPrice)` (of `round(4)` bij fractional shares)
+  - `amountToSell = sharesToSell × currentPrice`
+  - `postSellWeight = ((currentValue - amountToSell) / totalPortfolioValue) × 100`
+  - NL `actionLabel` mapping van `RebalanceAction`: `NO_ACTION → "geen actie"`, `TRIM_LIGHT → "licht afbouwen"`, `TRIM_HEAVY → "stevig afbouwen"`, `RECONSIDER → "heroverwegen"`.
+  - `RECONSIDER` plant afbouw van de volledige positie, niet alleen de excess.
+  - Reason-builder met pluralisatie ("1 aandeel" vs "meerdere aandelen"), fractional units ("stuks") en specifieke meldingen wanneer excess < 1 aandeel of koers ontbreekt.
+  - Confidence: `HIGH` bij volle data, `MEDIUM` bij last-known-koers of classifier-confidence < 0.5, `LOW` bij ontbrekende koers.
+  - `sharesToSell` nooit negatief, `targetWeight` geclampt naar [0..1], totalValue=0 geeft geen crash (alle weights 0).
+- [`src/lib/analytics/rebalance/index.ts`](src/lib/analytics/rebalance/index.ts) — barrel met publieke API.
+- [`src/lib/analytics/rebalance/rebalance-quantity.test.ts`](src/lib/analytics/rebalance/rebalance-quantity.test.ts) — 21 cases: het spec-voorbeeld (RHM, 1 aandeel bij €1750 excess €2266), alle NL action labels, RECONSIDER volledige afbouw, ontbrekende koers + lastKnownPrice fallback, koers ≤ 0, sharesToSell-niet-negatief, excess < 1 aandeel, fractional-shares mode, totalValue=0, targetWeight clamping, NaN sanitisatie, confidence-tiers, enkelvoud/meervoud pluralisatie.
+
+### Changed
+- [`src/types/rebalance.ts`](src/types/rebalance.ts):
+  - Nieuwe types `RebalanceActionLabel` (NL string union), `RebalanceQuantityConfidence` (HIGH/MEDIUM/LOW), `RebalanceQuantityPlan` (volledige output-shape met `symbol`, `actionLabel`, `currentWeight`, `targetWeight`, `currentValue`, `targetValue`, `excessValue`, `currentPrice`, `sharesToSell`, `amountToSell`, `postSellWeight`, `reason`, `confidence`, `warnings`). Percentages zijn 0..100 conform voorbeeld-spec.
+  - `RebalanceRecommendation` krijgt optioneel `quantityPlan?: RebalanceQuantityPlan` veld.
+- [`src/lib/analytics/rebalance-engine/engine.ts`](src/lib/analytics/rebalance-engine/engine.ts) — `recommendFor` vult nu automatisch `quantityPlan` via `computeRebalanceQuantity` met `marketValueBase` als currentValue, `unitPriceBase` (afgeleid uit `valuation.marketValueBase / quantity`) als currentPrice, en `factor?.confidence` als classifier-hint. Target weight komt uit de engine-beslissing (dus geconsolideerd met de bestaande concentratie-classifier + policy-overrides).
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — re-export van `./rebalance`.
+
+### Design-regels
+- **Een afbouw-engine, geen koop-engine**: deze module berekent alleen verkoopvolumes. Negatieve excess (positie onder target) produceert `sharesToSell=0`. Koop-volumes horen bij de allocation-engine; we kruisen de scope niet.
+- **Floor-by-default**: brokers (DEGIRO, IBKR op standaard-accounts) ondersteunen geen fractional shares. Default is `Math.floor` zodat gegenereerde orders uitvoerbaar zijn. Callers die bij DEGIRO Fractional of Trading 212 zitten zetten `allowFractionalShares: true`.
+- **Geen verzonnen quantities**: zonder koers → `sharesToSell = 0`, `amountToSell = 0`, `currentPrice = null`, warning in `warnings[]`. De UI moet dat als LOW confidence tonen (geen knop "Verkoop 0 stuks").
+- **RECONSIDER = volledige afbouw**: de bestaande engine markeert `RECONSIDER` als "heroverweeg de thesis" (target weight 0). De quantity engine concretiseert dat door de hele positie als af-te-bouwen te berekenen. Callers die alleen de excess willen tonen kunnen 't zelf filteren — maar de consistentie tussen engine en quantity is zo behouden.
+- **Percentages 0..100 in output** (niet fracties 0..1) omdat dit user-facing is. Interne engines blijven op fracties werken — conversie gebeurt in de quantity-engine.
+- **Niet-invasief voor bestaande engines**: `quantityPlan` is een *optioneel* veld op `RebalanceRecommendation`. De 13 bestaande rebalance-engine tests blijven unchanged — ze checken de hoofdvelden (action, weight, reasons). De nieuwe quantity-logica wordt apart getest.
+
+### Validatie
+- `npm test` → **513/513 tests groen** (+21 nieuwe quantity-tests).
+- `npx tsc --noEmit` → schoon.
+- `npx next build` → slaagt.
+
+### Aannassen
+- **Unit-prijs komt uit `valuation.marketValueBase / holding.quantity`**. Dat is de post-FX prijs per share in base currency, exact zoals de bestaande engine 'm al gebruikt voor `deltaShares`. Dit houdt FX-conversie consistent met de rest van de stack.
+- **Target weight uit de bestaande rebalance-engine output** — die leunt op `thresholds.maxPositionWeight` (uit `PolicySettings` of default). In een volgende ronde kan de quantity-engine ook direct uit `resolvePositionLimitByAssetType` (policy-engine) lezen voor instrument-type-specifieke caps, maar dat vraagt integration-werk in `buildRebalancePlan` dat we bewust uitstellen.
+- **`HIGH` confidence-drempel**: classifier-confidence ≥ 0.5. Lager → MEDIUM. Reden: bij lage coverage is de target-weight (die uit factor-informed rebalance regels komt) minder betrouwbaar, dus moet de UI dat laten zien.
+- **Severity-logica blijft in de bestaande rebalance-engine**: de quantity-engine doet geen eigen classificatie van "hoe erg" de overschrijding is — dat is al afgehandeld door `concentration-classifier` + `deriveAction`. De quantity-engine vertaalt de actie alleen naar concrete stuks.
+- **Fractional-shares-mode**: minimal-invasive als input-flag i.p.v. een nieuwe `PolicySettings`-veld. Callers geven 'm expliciet mee bij de `computeRebalanceQuantity` call. Wanneer we later user-instellingen willen persistent maken, kan een `PolicySettings.allowFractionalShares` boolean worden toegevoegd en doorgezet door `buildRebalancePlan`.
+
+## [Unreleased] - 2026-04-24 · Portfolio Policy Engine
+
+### Added
+- [`src/lib/analytics/policy-engine/types.ts`](src/lib/analytics/policy-engine/types.ts) — `InstrumentRiskLevel` (LOW/MODERATE/ELEVATED/HIGH), `ViolationSeverity` (ok/minor/major/critical), `PositionLimit` (allowedMaxWeight + basis + reason), `PolicyViolation` (holdingId, ticker, instrumentType, currentWeight, allowedMaxWeight, excessWeight, violationSeverity, policyReason, riskLevel, notes), `PolicyReport` (totalValue, violations, counts per severity, overallSeverity), `PolicyContext` (overrides + userMaxSinglePositionWeight). `DEFAULT_LIMITS_BY_TYPE` tabel en `RISK_ADJUSTMENT_MULTIPLIER` exporterend zodat UI + engines dezelfde constanten consumeren.
+- [`src/lib/analytics/policy-engine/classify-risk.ts`](src/lib/analytics/policy-engine/classify-risk.ts) — `classifyInstrumentRisk({ holding, classification })` pure functie. Beslissingsvolgorde: LEVERAGED/CRYPTO/isSpeculative → HIGH; volatility ≥ 0.40 → HIGH; 0.30-0.40 → ELEVATED; CASH/BOND/broad-market → LOW; single stock → MODERATE; sector/commodity → ELEVATED; theme → HIGH; income/factor → MODERATE; unknown → ELEVATED (voorzichtige fallback). Retourneert level + NL rationale.
+- [`src/lib/analytics/policy-engine/position-limits.ts`](src/lib/analytics/policy-engine/position-limits.ts) — `resolvePositionLimitByAssetType({ classification, risk, context? })` pure functie. Stapt door: default cap → per-type override → globale tightening → risk-adjustment (HIGH ×0.5, ELEVATED ×0.75) → user single-stock hard-cap (mag alleen verlagen). `null` override = cap uit; CASH altijd Infinity. Retourneert `PositionLimit` met basis + reason voor UI-traceability.
+- [`src/lib/analytics/policy-engine/violations.ts`](src/lib/analytics/policy-engine/violations.ts) — `detectPolicyViolations({ holdings, totalValue, context? })` orchestrator die risk + limit per positie berekent en een `PolicyReport` oplevert. Severity-ladder is *relatief* aan de cap (ratio current/cap): ok (≤1), minor (≤1.25), major (≤2), critical (>2). Defensief tegen `totalValue <= 0` (alle weights 0 → ok).
+- [`src/lib/analytics/policy-engine/index.ts`](src/lib/analytics/policy-engine/index.ts) — barrel met publieke API.
+- Tests:
+  - [`classify-risk.test.ts`](src/lib/analytics/policy-engine/classify-risk.test.ts) — 15 cases: leveraged/crypto/speculative/volatility-drempels/cash/bond/broad-market/single stock baseline/sector & commodity/theme/income/factor/unknown/NaN-volatility.
+  - [`position-limits.test.ts`](src/lib/analytics/policy-engine/position-limits.test.ts) — 18 cases: defaults per type incl. LEVERAGED met HIGH-halvering, CASH=Infinity, UNKNOWN=5%, risk-adjustment HIGH/ELEVATED/LOW, user-overrides (per-type incl. null=cap uit, globalTightening, userMaxSinglePositionWeight mag alleen verlagen en raakt ETFs niet), sanity-asserts op DEFAULT_LIMITS_BY_TYPE volgorde (broad > sector > theme, leveraged < crypto < single stock).
+  - [`violations.test.ts`](src/lib/analytics/policy-engine/violations.test.ts) — 16 cases: severity-ladder op alle grenzen, differentiatie per type (broad-market 35%→ok, sector 20%→major na ELEVATED-adjust, JEPI 22%→ok, TQQQ 4%→critical), cash altijd ok (Infinity cap), report-counts + overallSeverity, policyReason vermeldt %pt-over-cap, notes bevatten risk + limit rationale, lege portefeuille + totalValue=0 geen crash, user-context overrides voeden door tot severity.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — re-export van `./policy-engine`.
+
+### Design-regels
+- **Strikt data-driven**: caps en risk-thresholds zijn expliciete tabellen (`DEFAULT_LIMITS_BY_TYPE`, `RISK_ADJUSTMENT_MULTIPLIER`). Geen "magic numbers" in code — elke waarde heeft een comment met de rationale.
+- **User kan strenger, niet losser** (per design): `userMaxSinglePositionWeight` wordt alleen toegepast als 'ie *lager* is dan de huidige cap. Dit voorkomt dat een naïeve override concentration-risico verstopt.
+- **Severity is relatief, niet absoluut**: een 30% sector-ETF (ratio 2× cap) en een 12% single stock (ratio 1.2× cap) vragen om andere interventies. De relatieve ladder maakt dat expliciet.
+- **Engine-ready, niet-invasief**: de `PolicyReport` output is een drop-in voor risk- en rebalance-engines (elke `PolicyViolation` heeft ticker, weight, excess, severity, reason en riskLevel). De bestaande engines zijn *niet* gewijzigd; dat is een volgende ronde.
+- **Pure functies**: geen I/O, geen async. Geen verzonnen data — elk veld in `PolicyViolation` is herleidbaar tot holding-input of een expliciete regel in `classifyInstrumentRisk` / `resolvePositionLimitByAssetType`.
+- **Type-safety over praktisch**: `PolicyContext.overrides.limitsByType` accepteert `number | null | undefined` per type. `null` is expliciet "cap uit"; `undefined` betekent "gebruik default". Callers kunnen niet per ongeluk de verkeerde semantiek oppakken.
+
+### Aannames
+- **Default caps (`DEFAULT_LIMITS_BY_TYPE`)** zijn gebaseerd op algemene langetermijn-principes (Kelly-diversificatie voor single stocks = 10%; IWDA als "ruggengraat" tot 40%; leveraged compounding-drift = 3%). Dit zijn richtlijnen, niet bestuursregels — productie-users kunnen alles overrulen via `PolicyContext`.
+- **Relatieve severity-drempels**: 1.0× / 1.25× / 2× gekozen om zowel licht-boven-cap (minor) als fors-boven-cap (major) duidelijk onderscheid te geven. 2× als kritische grens komt overeen met "echt onacceptabel, altijd rebalance".
+- **Volatility-drempels** (0.30 / 0.40) komen uit de factor-engine baseline waar ze ook worden gebruikt. Blijven consistent met LowVol-scoring.
+- **Geen sector/regio caps** in deze ronde: `PolicySettings.maxSectorWeight` en `maxRegionWeight` worden door de bestaande rebalance-engine al gelezen. Deze policy-engine focust op *per-positie* caps, niet op aggregaat-concentratie. Een toekomstige uitbreiding kan beide combineren in één portfolio-brede `PolicyReport`.
+- **Engines blijven ongewijzigd**: `PolicyReport` is leverbaar, risk/rebalance/allocation wirings zijn een aparte taak. Door dit expliciet niet mee te nemen blijven de 443 bestaande tests unchanged én houden we de review-scope kort.
+
+### Validatie
+- `npm test` → **492/492 tests groen** (+49 nieuwe policy-engine tests).
+- `npx tsc --noEmit` → schoon.
+- `npx next build` → slaagt.
+
+## [Unreleased] - 2026-04-24 · Instrument Classification
+
+### Added
+- [`src/lib/analytics/instruments/types.ts`](src/lib/analytics/instruments/types.ts) — `InstrumentType` string-literal union (`SINGLE_STOCK`, `BROAD_MARKET_ETF`, `SECTOR_ETF`, `FACTOR_ETF`, `THEME_ETF`, `INCOME_ETF`, `BOND_ETF`, `COMMODITY_ETF`, `CRYPTO`, `CASH`, `LEVERAGED_OR_INVERSE`, `UNKNOWN_ETF`, `UNKNOWN`), `IncomeStrategy` (`covered-call` / `high-dividend` / `bond-heavy` / `other`), `ClassificationConfidence` (HIGH/MEDIUM/LOW), `InstrumentMetadata` (isBroadMarket, sectorFocus, isIncomeFocused, incomeStrategy, isSpeculative, supportsFactorScoring, eligibleForWinnerRule), `InstrumentClassification`, `defaultMetadata()` helper.
+- [`src/lib/analytics/instruments/etf-lookthrough.ts`](src/lib/analytics/instruments/etf-lookthrough.ts) — pure naam-pattern classifier voor ETFs. Herkent leveraged/inverse (voorrang), covered-call (JEPI/QYLD/XYLD + keywords), bond + income bond, high-dividend (SCHD + keywords), commodity (goud/zilver/olie), broad-market (S&P 500 / MSCI World / FTSE All-World / IWDA / VWCE / VUSA / CSPX / ...), sector-ETF (Technology/Healthcare/Financials/Energy/Utilities/Real Estate/Consumer/Industrials/Materials/Communication Services, waaronder Biotech als GICS sub-sector van Healthcare), factor-ETF (Quality/Momentum/Value/MinVol/Small-Mid Cap), theme-ETF (AI/Robotics/Cybersecurity/Cannabis/Space/Blockchain/Battery/Solar/ESG/Sustainability). Fallback: Yahoo-sector uit enrichment als hint, anders `UNKNOWN_ETF`.
+- [`src/lib/analytics/instruments/classifier.ts`](src/lib/analytics/instruments/classifier.ts) — pure `classifyInstrument({ holding, enrichment? })` die beslissingsvolgorde toepast: CASH (assetClass of keyword "money market" / "treasury bill") → CRYPTO → ETF/mutualfund lookthrough → SINGLE_STOCK (EQUITY) → REIT (als SINGLE_STOCK met real-estate focus + income) → BOND (als BOND_ETF voor engines) → COMMODITY (als COMMODITY_ETF) → UNKNOWN. Metadata per subtype reproduceerbaar via `buildEtfMetadata` — `eligibleForWinnerRule` is `false` voor sector/theme/income/leveraged (concentration-risico) en `true` voor broad-market, factor en single stocks. `supportsFactorScoring` is alleen `true` voor single stocks en REITs. `classifyInstruments(items[])` bulk-helper.
+- [`src/lib/analytics/instruments/index.ts`](src/lib/analytics/instruments/index.ts) — barrel met publieke API.
+- Tests:
+  - [`src/lib/analytics/instruments/etf-lookthrough.test.ts`](src/lib/analytics/instruments/etf-lookthrough.test.ts) — 19 cases: leveraged-voorrang, covered-call (expliciet + ticker-match + specificiteit vs high-dividend), bond (aggregate/treasury + bond-income → bond-heavy), high-dividend, broad-market (IWDA/VWCE/VUSA + "S&P 500 Technology" → sector-ETF), sector-mapping (10 sectors), factor-ETF, theme-ETF, commodity, fallback naar Yahoo-sector als hint, biotech explicitly als Healthcare sub-sector.
+  - [`src/lib/analytics/instruments/classifier.test.ts`](src/lib/analytics/instruments/classifier.test.ts) — 16 cases: single stocks met/zonder enrichment, IWDA → broad-market, JEPI → covered-call, XLK → sector-ETF, AGG → bond-ETF, BOTZ → theme+speculatief, TQQQ → leveraged, IBB → Healthcare sector (niet theme), unknown-ETF met LOW confidence, CASH + money-market keyword, CRYPTO speculatief, REIT als SINGLE_STOCK + income, BOND + COMMODITY fallbacks, UNKNOWN fallback, bulk-helper.
+
+### Changed
+- [`src/types/portfolio.ts`](src/types/portfolio.ts) — `Holding` krijgt een optioneel `classification?: HoldingClassificationMeta`-veld. De shape is bewust forward-declared (instrumentType als string) zodat types geen cycle hebben met de analytics-laag; canonieke definitie blijft in `@/lib/analytics/instruments/types`.
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — re-export van `./instruments` zodat `classifyInstrument`, `InstrumentType` etc. direct beschikbaar zijn via `@/lib/analytics`.
+
+### Design-regels
+- **Geen verzonnen data**: elke classificatie leunt op (a) een exacte enum-match uit enrichment's `quoteType`, (b) een regex-match op naam, of (c) een documenteerbare fallback. Onbekend → `UNKNOWN_ETF` of `UNKNOWN` met `confidence: "LOW"` — nooit een gok die als HIGH presenteert.
+- **Specificiteit wint**: leveraged heeft voorrang op sector (een "3x Technology" is eerst speculatief, dan pas sector). Covered-call voor high-dividend. Biotech als Healthcare sector (GICS), niet theme.
+- **Metadata is engine-klaar**: risk-engine kan `isSpeculative` en `isBroadMarket` direct lezen voor concentratie-scoring. Rebalance-engine kan `eligibleForWinnerRule` gebruiken om sector/theme/covered-call ETFs *niet* als winners-to-run te behandelen. Allocation/policy-engine kan `supportsFactorScoring` gebruiken om factor-drempels alleen op single stocks toe te passen. Deze wiring is **nog niet gedaan** in de engines — de data is beschikbaar, de engines blijven ongewijzigd tot er expliciete integratie-eisen komen.
+- **Pure functies**: geen I/O, geen async. Classificeren is synchroon zodra enrichment is geladen. Cache-strategie is dus onnodig; hergebruik volgt uit de enrichment-cache die al bestaat.
+- **Confidence-drempels**:
+  - `HIGH`: exact quoteType-match én naam bevestigt (bv. EQUITY-ticker met bekende sector, of ETF met duidelijke broad-market keyword).
+  - `MEDIUM`: assetClass bekend maar geen enrichment, of ETF-type duidelijk uit naam maar geen Yahoo-provenance.
+  - `LOW`: `UNKNOWN` of `UNKNOWN_ETF` — callers moeten UI tonen dat de positie niet automatisch kan worden geëvalueerd.
+
+### Validatie
+- `npm test` → **443/443 tests groen** (+36 nieuwe).
+- `npx tsc --noEmit` → schoon.
+- `npx next build` → slaagt.
+
+### Aannames
+- **GICS-taxonomie** wordt gevolgd voor sector-toekenning (Biotech onder Healthcare, REITs als Real Estate sector wanneer in een ETF, individuele REIT-aandelen blijven SINGLE_STOCK).
+- **Covered-call ETF-detectie** gebruikt naam-patronen en bekende tickers (JEPI/JEPQ/QYLD/XYLD/RYLD/YMAX/QDTE). Nieuwe producten landen initieel in INCOME_ETF (high-dividend) zolang ze geen matching keyword/ticker hebben — dat is acceptabel want de metadata (`isIncomeFocused`, `eligibleForWinnerRule=false`) is identiek.
+- **Leveraged/inverse** krijgt voorrang op elke andere classificatie omdat het gedrag (geen winner-rule, speculatief, capped factor-inzicht) domineert over sector/theme/broad-market. Dat voorkomt dat een "3x Technology Bull" als gewone Tech-ETF wordt getrimd.
+- **Engines blijven ongewijzigd**: deze ronde levert alleen de classifier + metadata. Integratie in risk/policy/rebalance is een vervolgtaak — expliciet houden zodat bestaande testen en gedrag niet verschuift.
+- **`UNKNOWN`-volume**: voor een zuivere DEGIRO-import met ISIN's + Yahoo enrichment is `UNKNOWN` zeldzaam. Voor portefeuilles met exotische producten (SPACs, private markets, niet-Yahoo-tickers) is `UNKNOWN` verwacht gedrag. UI moet dit als LOW-confidence tonen.
+
 ## [Unreleased] - 2026-04-24 · Data Quality & Enrichment
 
 ### Added

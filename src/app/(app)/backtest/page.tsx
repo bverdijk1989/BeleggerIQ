@@ -3,12 +3,14 @@ import { TimerReset } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
-import { runBacktest } from "@/lib/analytics";
+import { buildEvidenceReport, runBacktest } from "@/lib/analytics";
 
 import { Disclaimer } from "./components/disclaimer";
 import { EquityChart } from "./components/equity-chart";
+import { EvidenceTab } from "./components/evidence-tab";
 import { FiltersForm } from "./components/filters-form";
 import { MetricsCards } from "./components/metrics-cards";
+import { TabNav, type BacktestTab } from "./components/tab-nav";
 import { parseBacktestFilters } from "./filters-serde";
 import { prepareBacktestInputs } from "./prepare-inputs";
 
@@ -27,6 +29,8 @@ export default async function BacktestPage({
 }: BacktestPageProps) {
   const resolvedParams = await searchParams;
   const filters = parseBacktestFilters(resolvedParams);
+  const tab = parseTab(resolvedParams.tab);
+  const searchParamsString = stringifyParams(resolvedParams);
   const prepared = await prepareBacktestInputs(filters).catch((error) => {
     console.error("[backtest:page] prepare failed", error);
     return null;
@@ -60,6 +64,17 @@ export default async function BacktestPage({
 
   const periodLabel = `${prepared.config.startDate} tot ${prepared.config.endDate}`;
 
+  // Evidence-report wordt altijd berekend (pure function over equity-curve)
+  // zodat tab-switches geen extra fetches nodig hebben.
+  const evidenceReport =
+    result.equityCurve.length > 0
+      ? buildEvidenceReport({
+          result,
+          strategyLabel: prepared.strategyLabel,
+          benchmarkLabel: result.benchmark?.ticker ?? null,
+        })
+      : null;
+
   return (
     <>
       <PageHeader
@@ -70,11 +85,18 @@ export default async function BacktestPage({
 
       <FiltersForm initial={prepared.effectiveFilters} />
 
+      <TabNav current={tab} searchParamsString={searchParamsString} />
+
       {result.equityCurve.length === 0 ? (
         <EmptyState
           icon={TimerReset}
           title="Te weinig observaties"
           description="De geselecteerde periode leverde niet genoeg maandelijkse data op. Verleng het venster of kies een ander universum."
+        />
+      ) : tab === "bewijs" && evidenceReport ? (
+        <EvidenceTab
+          report={evidenceReport}
+          baseCurrency={prepared.config.baseCurrency}
         />
       ) : (
         <>
@@ -96,4 +118,24 @@ export default async function BacktestPage({
       </Section>
     </>
   );
+}
+
+function parseTab(value: string | string[] | undefined): BacktestTab {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "bewijs" ? "bewijs" : "headline";
+}
+
+function stringifyParams(
+  params: Record<string, string | string[] | undefined>,
+): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) sp.append(k, item);
+    } else {
+      sp.set(k, v);
+    }
+  }
+  return sp.toString();
 }

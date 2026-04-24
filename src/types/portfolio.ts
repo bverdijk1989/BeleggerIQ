@@ -2,6 +2,24 @@ import type { Currency, ISODateString } from "./common";
 import type { FactorScore } from "./factor";
 import type { PositionRiskAnalysis } from "./risk";
 
+/**
+ * Forward-declared subset van `@/lib/analytics/instruments/types`. We
+ * embedden de shape hier i.p.v. een directe import om cycles te voorkomen
+ * (types ↔ analytics). Zie `InstrumentClassification` in
+ * `@/lib/analytics/instruments/types.ts` voor de canonieke definitie.
+ */
+export interface HoldingClassificationMeta {
+  instrumentType: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  isBroadMarket: boolean;
+  isIncomeFocused: boolean;
+  isSpeculative: boolean;
+  sectorFocus: string | null;
+  incomeStrategy: string | null;
+  supportsFactorScoring: boolean;
+  eligibleForWinnerRule: boolean;
+}
+
 export type AssetClass =
   | "EQUITY"
   | "ETF"
@@ -50,6 +68,14 @@ export interface Holding {
   factorScore?: FactorScore;
   /** Cache van de meest recente risk analyse. */
   riskAnalysis?: PositionRiskAnalysis;
+
+  /**
+   * Cache van de meest recente instrument-classificatie (SINGLE_STOCK vs
+   * BROAD_MARKET_ETF vs INCOME_ETF vs ...). Wordt gezet door
+   * `classifyInstrument` uit `@/lib/analytics/instruments`. Optioneel:
+   * afwezig wanneer de enrichment-pipeline nog niet is gedraaid.
+   */
+  classification?: HoldingClassificationMeta;
 
   metadata?: Record<string, unknown> | null;
 }

@@ -63,6 +63,62 @@ export interface RebalanceRecommendation {
   confidence: number;
 
   factorSnapshot: RebalanceFactorSnapshot;
+
+  /**
+   * Concrete afbouw-quantity (stuks + bedrag + NL action label + post-sell
+   * gewicht). Gevuld door de rebalance-engine voor TRIM_LIGHT/TRIM_HEAVY/
+   * RECONSIDER zodra `currentPrice` beschikbaar is. Bij NO_ACTION is 'ie
+   * ook gevuld (sharesToSell=0) zodat UI consistent kan renderen.
+   * Undefined wanneer er onvoldoende koersdata is om quantity te bepalen.
+   */
+  quantityPlan?: RebalanceQuantityPlan;
+}
+
+/**
+ * NL action labels. Bewust afgeschermd van de enum `RebalanceAction` zodat
+ * de UI geen mapping hoeft te maken en analytics engine-taal (upper case
+ * enum) los blijft van user-facing taal (NL microcopy).
+ */
+export type RebalanceActionLabel =
+  | "geen actie"
+  | "licht afbouwen"
+  | "stevig afbouwen"
+  | "heroverwegen";
+
+export type RebalanceQuantityConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export interface RebalanceQuantityPlan {
+  /** Zelfde als `RebalanceRecommendation.ticker`, voor standalone gebruik. */
+  symbol: string;
+  /** Nederlandstalig label; mapped van `RebalanceAction`. */
+  actionLabel: RebalanceActionLabel;
+
+  /** Percentage (0..100) voor visuele weergave; conform voorbeeld-output. */
+  currentWeight: number;
+  targetWeight: number;
+
+  /** Monetaire bedragen in base currency. */
+  currentValue: number;
+  targetValue: number;
+  /** `currentValue - targetValue`. `0` bij NO_ACTION. */
+  excessValue: number;
+
+  /** Unit-prijs in base currency. `null` als er geen live/last-known koers is. */
+  currentPrice: number | null;
+
+  /** Altijd ≥ 0. Floor tenzij `allowFractionalShares` is true. */
+  sharesToSell: number;
+  /** `sharesToSell * currentPrice`. 0 bij ontbrekende prijs of NO_ACTION. */
+  amountToSell: number;
+  /** Geprojecteerd gewicht (0..100%) NA de verkoop. */
+  postSellWeight: number;
+
+  /** Eén zin met de reden — toonbaar onder de actie-badge. */
+  reason: string;
+  /** Confidence in de berekening. Daalt bij ontbrekende prijs of lage classifier-confidence. */
+  confidence: RebalanceQuantityConfidence;
+  /** Waarschuwingen (bv. "onvoldoende koersdata"). Leeg bij HIGH confidence. */
+  warnings: string[];
 }
 
 export interface RebalancePlan {

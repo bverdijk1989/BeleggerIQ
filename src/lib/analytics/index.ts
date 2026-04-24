@@ -51,6 +51,12 @@ export * from "./scenario";
 export * from "./snapshot";
 export * from "./screener";
 export * from "./regime";
+export * from "./instruments";
+export * from "./policy-engine";
+export * from "./rebalance";
+export * from "./opportunity-radar";
+export * from "./mispricing";
+export * from "./hunting-list";
 // Backtest: selectief re-export om collision op `computeMaxDrawdown` met
 // risk-engine te vermijden. `computeMaxDrawdown(values: number[])` blijft
 // bereikbaar via `@/lib/analytics/backtest/metrics`.
@@ -88,4 +94,24 @@ export {
   buildCustomStrategy,
   type CustomStrategyConfig,
   type CustomStrategyWeights,
+  // Evidence module
+  buildEvidenceReport,
+  buildEvidenceVerdict,
+  computeRollingReturns,
+  computeRegimeBreakdown,
+  detectUnderperformancePeriods,
+  computeDcaSimulation,
+  computeBenchmarkRegret,
+  computeDrawdownRecovery,
+  type StrategyEvidenceReport,
+  type EvidenceVerdict,
+  type RegimeBreakdownRow,
+  type RollingWindowSummary,
+  type RollingWindowEntry,
+  type UnderperformancePeriod,
+  type DcaContributionSimulation,
+  type BenchmarkRegretScore,
+  type DrawdownRecoveryEntry,
+  type DrawdownRecoverySummary,
+  type BuildEvidenceReportInput,
 } from "./backtest";

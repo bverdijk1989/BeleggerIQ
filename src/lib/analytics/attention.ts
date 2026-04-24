@@ -1,5 +1,6 @@
 import type {
   RebalancePlan,
+  RebalanceQuantityPlan,
   RebalanceRecommendation,
 } from "@/types/rebalance";
 import type {
@@ -33,6 +34,12 @@ export interface AttentionItem {
   severity: AttentionSeverity;
   category: "risk" | "rebalance";
   metric?: number;
+  /**
+   * Concrete afbouw-quantity uit de rebalance-engine (verkoop X stuks voor
+   * circa €Y). Alleen gezet voor `rebalance`-items; door-gegeven vanuit
+   * `RebalanceRecommendation.quantityPlan` zonder extra rekenen.
+   */
+  quantityPlan?: RebalanceQuantityPlan;
 }
 
 export function buildAttentionItems(
@@ -75,17 +82,23 @@ export function countAttentionBySeverity(
 function fromRebalance(
   rec: RebalanceRecommendation,
 ): (AttentionItem & { priority: number }) | null {
+  // Zet het quantityPlan direct door — UI leest sharesToSell, amountToSell,
+  // postSellWeight en confidence uit hetzelfde object dat de rebalance-
+  // engine heeft geproduceerd. Geen vertaling, geen afronding in deze laag.
+  const quantityPlan = rec.quantityPlan;
   switch (rec.action) {
     case "RECONSIDER":
       return {
         id: `rebalance.${rec.ticker}.reconsider`,
         label: `${rec.name}: heroverwegen`,
         message:
+          quantityPlan?.reason ??
           rec.reasons[0] ??
           "Zwak profiel — positie past mogelijk niet bij je strategie.",
         severity: "critical",
         category: "rebalance",
         metric: rec.fragilityScore,
+        quantityPlan,
         priority: 100,
       };
     case "TRIM_HEAVY":
@@ -93,11 +106,13 @@ function fromRebalance(
         id: `rebalance.${rec.ticker}.heavy`,
         label: `${rec.name}: stevig afbouwen`,
         message:
+          quantityPlan?.reason ??
           rec.reasons[0] ??
           "Fragiele concentratie boven drempel — breng terug naar target.",
         severity: "high",
         category: "rebalance",
         metric: rec.currentWeight,
+        quantityPlan,
         priority: 80,
       };
     case "TRIM_LIGHT":
@@ -105,11 +120,13 @@ function fromRebalance(
         id: `rebalance.${rec.ticker}.light`,
         label: `${rec.name}: licht afbouwen`,
         message:
+          quantityPlan?.reason ??
           rec.reasons[0] ??
           "Positie boven target — een stap richting cap volstaat.",
         severity: "moderate",
         category: "rebalance",
         metric: rec.currentWeight,
+        quantityPlan,
         priority: 30,
       };
     case "NO_ACTION":

@@ -3,6 +3,7 @@
 
 export { prisma } from "./prisma";
 export { portfolioRepository } from "./portfolio-repository";
+export { huntingListRepository } from "./hunting-list-repository";
 export {
   strategyPresetRepository,
   presetToCustomConfig,

@@ -1,12 +1,16 @@
 import { CheckCircle2, ListChecks, ShieldAlert } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+import type { Currency } from "@/types/common";
+import type { RebalanceQuantityPlan } from "@/types/rebalance";
 
 import type { AttentionItem, AttentionSeverity } from "../build-attention";
 
 interface AttentionSummaryProps {
   items: AttentionItem[];
+  /** Base currency voor de afbouwbedragen in de quantity-regel. */
+  baseCurrency: Currency;
 }
 
 const SEVERITY_DOT: Record<AttentionSeverity, string> = {
@@ -24,7 +28,7 @@ const CATEGORY_LABEL: Record<AttentionItem["category"], string> = {
  * "Wat vraagt aandacht" samenvattingslijst onderaan de pagina. Puur
  * presentationeel; `items` komt uit `buildAttentionItems`.
  */
-export function AttentionSummary({ items }: AttentionSummaryProps) {
+export function AttentionSummary({ items, baseCurrency }: AttentionSummaryProps) {
   if (items.length === 0) {
     return (
       <Card>
@@ -85,6 +89,12 @@ export function AttentionSummary({ items }: AttentionSummaryProps) {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.message}
                 </p>
+                {item.quantityPlan && (
+                  <QuantityLine
+                    plan={item.quantityPlan}
+                    baseCurrency={baseCurrency}
+                  />
+                )}
               </div>
               {item.severity === "critical" && (
                 <ShieldAlert className="mt-1 h-4 w-4 shrink-0 text-destructive" />
@@ -94,5 +104,55 @@ export function AttentionSummary({ items }: AttentionSummaryProps) {
         </ul>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Subregel onder de attention-message: "verkoop indicatief X aandeel voor
+ * circa €Y". Geen rekenwerk — alle getallen komen uit het `quantityPlan`
+ * dat door de rebalance-engine is gezet. Bij ontbrekende koers of
+ * nul-stuks tonen we een expliciete "onvoldoende data"-regel.
+ */
+function QuantityLine({
+  plan,
+  baseCurrency,
+}: {
+  plan: RebalanceQuantityPlan;
+  baseCurrency: Currency;
+}) {
+  const hasPrice = plan.currentPrice !== null;
+  if (!hasPrice) {
+    return (
+      <p className="mt-2 text-xs text-amber-200">
+        Onvoldoende koersdata — aantal niet te bepalen.
+      </p>
+    );
+  }
+  if (plan.sharesToSell === 0) {
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        Overschrijding kleiner dan één eenheid — geen concrete order nodig.
+      </p>
+    );
+  }
+  const isFractional = !Number.isInteger(plan.sharesToSell);
+  const unit = isFractional
+    ? "stuks"
+    : plan.sharesToSell === 1
+      ? "eenheid"
+      : "eenheden";
+  const formattedShares = formatNumber(
+    plan.sharesToSell,
+    isFractional ? 4 : 0,
+  );
+  const formattedAmount = formatCurrency(plan.amountToSell, baseCurrency, {
+    maximumFractionDigits: 0,
+  });
+  return (
+    <p className="mt-2 text-xs text-foreground">
+      <span className="font-medium">Indicatief:</span>{" "}
+      verkoop {formattedShares} {unit} voor circa {formattedAmount} — nieuwe
+      weging ca. {plan.postSellWeight.toFixed(2)}%.
+    </p>
   );
 }

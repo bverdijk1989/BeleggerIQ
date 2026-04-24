@@ -34,36 +34,40 @@ fi
 STAMP=$(date +%Y%m%d-%H%M%S)
 RELEASE="$BASE/releases/$STAMP"
 
-echo "== [1/6] Clone $REF naar $RELEASE =="
+echo "== [1/7] Clone $REF naar $RELEASE =="
 git clone --depth 1 --branch "$REF" "$REPO_URL" "$RELEASE"
 cd "$RELEASE"
 
-echo "== [2/6] Symlink shared .env =="
+echo "== [2/7] Symlink shared .env =="
 ln -sf "$BASE/shared/.env.production" .env
 
-echo "== [3/6] npm ci (inclusief devDependencies voor build) =="
+echo "== [3/7] npm ci (inclusief devDependencies voor build) =="
 npm ci --no-audit --no-fund
 
-echo "== [4/6] Prisma generate + migrate deploy =="
+echo "== [4/7] Prisma generate + migrate deploy =="
 npx prisma generate
 npx prisma migrate deploy
 
-echo "== [5/6] next build =="
+echo "== [5/7] next build =="
 npm run build
+
+echo "== [6/7] Bundle ops-scripts (esbuild → dist/scripts/) =="
+# Bundels de TypeScript-scripts in scripts/ naar plain JS zodat we ze
+# post-deploy kunnen draaien zonder tsx / devDependencies. Bijvoorbeeld:
+#   npm run validate:symbols
+# Belangrijk: dit gebeurt VÓÓR `npm prune --omit=dev` want esbuild zelf
+# is een devDependency.
+npm run build:scripts
 
 # Prune devDependencies na de build — default aan voor slanke runtime.
 # Skip met `PRUNE_DEV=0 ./deploy.sh` als je na deploy nog dev tools nodig hebt
-# (bv. `prisma db seed` gebruikt tsx, en tsx zit in devDependencies).
-# Alternatief na een pruned deploy:
-#   cd /var/www/beleggeriq/current
-#   npm install --include=dev --no-audit --no-fund
-#   npx prisma db seed
-#   npm prune --omit=dev
+# (bv. `prisma db seed` gebruikt tsx, en tsx zit in devDependencies — de
+# gebundelde `dist/scripts/*.js` werkt wél na prune).
 if [ "${PRUNE_DEV:-1}" = "1" ]; then
     npm prune --omit=dev
 fi
 
-echo "== [6/6] Atomic symlink swap + restart =="
+echo "== [7/7] Atomic symlink swap + restart =="
 ln -sfn "$RELEASE" "$BASE/current"
 
 # Vereist dat de beleggeriq-user sudo-NOPASSWD heeft op deze service:

@@ -8,6 +8,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   ShieldAlert,
+  Sparkles,
   Telescope,
   TimerReset,
   UserCog,
@@ -49,6 +50,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     icon: CalendarClock,
     description: "Wat koop je deze maand",
     group: "beslissingen",
+  },
+  {
+    label: "Kansen",
+    href: "/kansen",
+    icon: Sparkles,
+    description: "Opportunity radar over portefeuille, screener en watchlist",
+    group: "onderzoek",
   },
   {
     label: "Screener",

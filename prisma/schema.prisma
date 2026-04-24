@@ -32,11 +32,12 @@ model User {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  profile         UserProfile?
-  portfolios      Portfolio[]
-  watchlistItems  WatchlistItem[]
-  strategyPresets StrategyPreset[]
-  backtestRuns    BacktestRun[]
+  profile           UserProfile?
+  portfolios        Portfolio[]
+  watchlistItems    WatchlistItem[]
+  huntingSignalLogs HuntingSignalLog[]
+  strategyPresets   StrategyPreset[]
+  backtestRuns      BacktestRun[]
 
   @@index([email])
 }
@@ -308,27 +309,80 @@ model BacktestRun {
 }
 
 // ============================================================
-//  WATCHLIST
+//  HUNTING LIST  (voorheen: WATCHLIST)
 // ============================================================
 
-/// Observatielijst: tickers die een user volgt maar niet bezit.
-/// Unique(userId, ticker) voorkomt dubbele entries bij herhaald toevoegen.
+/// Actieve kansenlijst: tickers die een user volgt, aangevuld met
+/// target-zone- en valuation-band-triggers zodat de lijst aangeeft
+/// **wanneer** een aandeel koopwaardig onderzocht moet worden.
+///
+/// - `targetPrice`/`targetPriceHigh` vormen samen een target-zone;
+///   wanneer `targetPriceHigh` null is, wordt `targetPrice` als
+///   enkele buy-drempel gebruikt met `buyZoneTolerance` als marge.
+/// - `buyZoneTolerance` is een fractie (bv. 0.05 = 5%); default 0.05.
+/// - `valuationMaxPE` / `valuationMinFcfYield` zijn optionele
+///   user-gedefinieerde valuation-drempels. Detectie is off-by-default.
+/// - Unique(userId, ticker) voorkomt dubbele entries bij herhaald toevoegen.
 model WatchlistItem {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  ticker      String
-  name        String?
-  note        String?
-  targetPrice Decimal? @db.Decimal(20, 8)
+  ticker                String
+  name                  String?
+  note                  String?
 
-  addedAt     DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Target-zone config
+  targetPrice           Decimal? @db.Decimal(20, 8)
+  targetPriceHigh       Decimal? @db.Decimal(20, 8)
+  buyZoneTolerance      Float?
+
+  // Valuation-band config (user-defined triggers)
+  valuationMaxPE        Float?
+  valuationMinFcfYield  Float?
+
+  addedAt               DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  signalLogs            HuntingSignalLog[]
 
   @@unique([userId, ticker])
   @@index([userId, addedAt])
   @@index([ticker])
+}
+
+/// Append-only log van afgevuurde hunting-list triggers. Elk record
+/// documenteert **wanneer** een specifieke trigger voor het eerst (of
+/// opnieuw) actief werd, welke ernst, onder welke prijs/fundamentals.
+///
+/// De loader schrijft **alleen** een nieuw record wanneer er nog geen
+/// niet-verlopen log van hetzelfde type bestaat. Zo blijft het log
+/// een opportunity-history i.p.v. een tick-stream.
+model HuntingSignalLog {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  watchlistItemId String?
+  watchlistItem   WatchlistItem? @relation(fields: [watchlistItemId], references: [id], onDelete: SetNull)
+
+  ticker          String
+  triggerType     String   // "target-zone-reached" | "target-zone-near" | "valuation-band-reached"
+  severity        String   // "LOW" | "MEDIUM" | "HIGH"
+
+  price           Decimal? @db.Decimal(20, 8)
+  currency        String?
+  pe              Float?
+  fcfYield        Float?
+  rationale       String?  // JSON-stringified array of NL-bullets
+  note            String?
+
+  firedAt         DateTime @default(now())
+  expiresAt       DateTime
+
+  @@index([userId, ticker, firedAt])
+  @@index([userId, firedAt])
+  @@index([expiresAt])
 }
 
 // ============================================================

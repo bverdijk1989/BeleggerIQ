@@ -15,6 +15,7 @@ import {
   CurrencyExposureCard,
   SectorExposureCard,
 } from "./components/exposure-cards";
+import { RebalanceQuantityCard } from "./components/rebalance-quantity-card";
 import { RiskPositionsTable } from "./components/risk-positions-table";
 import { RiskTopSummary } from "./components/risk-top-summary";
 import { ScenarioPanel } from "./components/scenario-panel";
@@ -57,6 +58,13 @@ export default async function RisicoPage() {
 
   const { risk, rebalance, valuations, summary } = view;
   const attention = buildAttentionItems(risk, rebalance);
+
+  // Asset-class map voor de quantity-card unit-labeling ("aandelen" vs
+  // "units" vs "stuks"). Server-side opgebouwd zodat UI puur blijft.
+  const assetClassByTicker = new Map(
+    portfolio.holdings.map((h) => [h.ticker, h.assetClass]),
+  );
+
   const scenarios = runDefaultScenarios({
     valuations,
     totalValue: summary.totalValue,
@@ -106,10 +114,21 @@ export default async function RisicoPage() {
       />
 
       <Section
+        title="Concrete afbouwadviezen"
+        description="Per positie: hoeveel stuks verkopen, welk indicatief bedrag en wat de weging daarna wordt."
+      >
+        <RebalanceQuantityCard
+          recommendations={rebalance.recommendations}
+          baseCurrency={summary.baseCurrency}
+          assetClassByTicker={assetClassByTicker}
+        />
+      </Section>
+
+      <Section
         title="Wat vraagt aandacht"
         description="Gecombineerd uit risk-engine en rebalance-engine."
       >
-        <AttentionSummary items={attention} />
+        <AttentionSummary items={attention} baseCurrency={summary.baseCurrency} />
       </Section>
     </>
   );

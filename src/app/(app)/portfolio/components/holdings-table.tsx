@@ -8,6 +8,7 @@ import type { Currency } from "@/types/common";
 import type { FactorRationales } from "@/types/factor";
 
 import { ActionBadge } from "./action-badge";
+import { ResearchDossierButton } from "./research-dossier-button";
 
 /**
  * Serialiseerbare row-shape voor de tabel. De page bouwt deze rows met
@@ -198,7 +199,10 @@ function HoldingRowView({ row, baseCurrency }: HoldingRowViewProps) {
         />
       </td>
       <td className="px-3 py-2 text-right">
-        <ActionBadge action={row.action} rationale={row.actionRationale} />
+        <div className="flex flex-col items-end gap-1">
+          <ActionBadge action={row.action} rationale={row.actionRationale} />
+          <ResearchDossierButton ticker={row.ticker} label={row.name} />
+        </div>
       </td>
     </tr>
   );
