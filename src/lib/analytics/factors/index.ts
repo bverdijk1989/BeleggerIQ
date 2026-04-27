@@ -31,3 +31,25 @@ export {
   scoreHoldings,
   type FactorScoringInput,
 } from "./composite";
+
+export {
+  scoreFactorsByAssetClass,
+  type RouteFactorInput,
+} from "./router";
+
+// ETF-engine re-export voor convenience.
+export {
+  scoreEtfFactors,
+  scoreEtfCost,
+  scoreEtfScale,
+  scoreEtfTrackRecord,
+  scoreEtfFit,
+  DEFAULT_ETF_WEIGHTS,
+  isDistributionPolicyAligned,
+  NULL_ETF_METADATA_PROVIDER,
+  type DistributionPolicy,
+  type EtfFactorScoringInput,
+  type EtfMetadata,
+  type EtfMetadataProvider,
+  type ReplicationMethod,
+} from "../etf-factors";

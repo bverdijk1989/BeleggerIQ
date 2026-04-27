@@ -62,7 +62,28 @@ export interface FactorWeights {
  * Eindresultaat van de factor scoring per ticker.
  * `composite` is de gewogen combinatie van sub-scores, genormaliseerd naar 0..100.
  * `percentile` plaatst de ticker cross-sectioneel binnen zijn universe (0..1).
+ *
+ * **`kind`-discriminator** vertelt downstream code (UI, business-quality
+ * layer, action-engine) of de scores afkomstig zijn van een aandeel
+ * (`STOCK` — quality/value/momentum/risk uit fundamentals) of een
+ * ETF (`ETF` — cost/scale/track-record/fit uit fund-metadata). De
+ * sub-score-shape blijft hetzelfde voor backwards-compat; de semantiek
+ * verandert per kind. Rationales en `etfBreakdown` maken duidelijk
+ * welke betekenis de scores in deze ticker hebben.
  */
+export type FactorScoreKind = "STOCK" | "ETF";
+
+export interface EtfFactorBreakdown {
+  /** Kosten-efficiëntie 0..100 (lage TER = hoog). */
+  cost: number;
+  /** Schaal/liquiditeit 0..100 (groot AUM = hoog). */
+  scale: number;
+  /** Track-record 0..100 (oudere fonds + lagere tracking-error = hoog). */
+  trackRecord: number;
+  /** Pasvorm met user-objective + region/sector-fit 0..100. */
+  fit: number;
+}
+
 export interface FactorScore {
   ticker: string;
   asOf: ISODateString;
@@ -75,6 +96,14 @@ export interface FactorScore {
   weights?: FactorWeights;
   /** Korte redenen waarom (sub-)scores hoog of laag zijn. */
   rationales?: FactorRationales;
+  /**
+   * Welke engine produceerde deze score? Default `"STOCK"` voor
+   * backwards-compat. ETF-scores krijgen `"ETF"` en een gevuld
+   * `etfBreakdown`-blok zodat de UI ETF-relevante labels kan tonen.
+   */
+  kind?: FactorScoreKind;
+  /** Alleen gevuld wanneer `kind = "ETF"`. */
+  etfBreakdown?: EtfFactorBreakdown;
 }
 
 /**

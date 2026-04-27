@@ -41,9 +41,11 @@ export function ScoreLegend() {
             Scores
           </p>
           <p className="mt-1 text-sm text-foreground">
-            Quality, Value en Momentum worden cross-sectional genormaliseerd
-            naar een 0–100 schaal. De totaalscore is een gewogen composite die
-            mee-schuift met je beleggersprofiel.
+            Per holding draait de juiste engine: <strong>aandelen</strong> en
+            REITs op fundamentals (Quality / Value / Momentum / Risk),{" "}
+            <strong>ETFs / fondsen</strong> op fund-metadata (Kosten / Schaal /
+            Track-record / Pasvorm). Beide leveren een 0–100 composite die
+            meegeschoven is met je beleggersprofiel.
           </p>
           <ul className="mt-3 space-y-1.5 text-xs text-muted-foreground">
             {SCORE_BANDS.map((band) => (
@@ -54,6 +56,11 @@ export function ScoreLegend() {
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            ETFs zonder fund-metadata krijgen geen verzonnen fundamentals —
+            ze houden een neutrale composite (50) met lage confidence tot
+            een fund-data-feed wordt aangesloten.
+          </p>
         </div>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
