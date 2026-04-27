@@ -81,13 +81,20 @@ export function AllocationDecisionPreview({
         <ImpactSummary impacts={simulation.impactSummary} />
 
         <BeforeAfterToggle
-          render={(mode) => (
+          current={
             <SnapshotView
-              mode={mode}
+              mode="current"
               simulation={simulation}
               baseCurrency={baseCurrency}
             />
-          )}
+          }
+          simulated={
+            <SnapshotView
+              mode="simulated"
+              simulation={simulation}
+              baseCurrency={baseCurrency}
+            />
+          }
         />
 
         {(lowConfidence || hasWarnings) && (

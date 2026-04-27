@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowRightLeft } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -8,10 +8,15 @@ import { cn } from "@/lib/utils";
 /**
  * BeforeAfterToggle — pure UI-toggle ("Nu" ↔ "Na advies").
  *
- * Bevat geen businesslogica: het component houdt enkel z'n eigen
- * tab-state vast en geeft die door aan de render-prop. De simulatie
- * zelf (huidige + simulated allocation) wordt door
- * `simulateActionImpact` opgebouwd in de server-laag.
+ * Bevat geen businesslogica. Server-componenten leveren twee
+ * al-gerenderde slots aan (`current`, `simulated`); de toggle laat
+ * client-side zien welke actief is.
+ *
+ * **Belangrijk:** we gebruiken **geen render-prop** met functie. Een
+ * functie mag niet over de RSC-boundary van een server-component naar
+ * een client-component (Next.js gooit "Functions cannot be passed
+ * directly to Client Components"). Vooraf renderen + verbergen met CSS
+ * houdt de toggle pure-UI én RSC-compatibel.
  */
 
 export type BeforeAfterMode = "current" | "simulated";
@@ -22,8 +27,10 @@ interface Props {
   /** Optionele controlled mode — wanneer gezet, wordt state genegeerd. */
   value?: BeforeAfterMode;
   onChange?: (mode: BeforeAfterMode) => void;
-  /** Render-prop met de actieve mode. */
-  render: (mode: BeforeAfterMode) => React.ReactNode;
+  /** Pre-rendered "Nu"-snapshot. */
+  current: ReactNode;
+  /** Pre-rendered "Na advies"-snapshot. */
+  simulated: ReactNode;
   /** Extra className voor de wrapper. */
   className?: string;
 }
@@ -32,7 +39,8 @@ export function BeforeAfterToggle({
   initial = "current",
   value,
   onChange,
-  render,
+  current,
+  simulated,
   className,
 }: Props) {
   const [internal, setInternal] = useState<BeforeAfterMode>(initial);
@@ -62,7 +70,15 @@ export function BeforeAfterToggle({
           label="Na advies"
         />
       </div>
-      <div>{render(mode)}</div>
+      {/* Beide snapshots zijn altijd gemount (zodat server-render input
+       *  klopt); we tonen alleen de actieve. Geen layout-shift, geen
+       *  RSC-payload-functie. */}
+      <div role="tabpanel" hidden={mode !== "current"}>
+        {current}
+      </div>
+      <div role="tabpanel" hidden={mode !== "simulated"}>
+        {simulated}
+      </div>
     </div>
   );
 }
