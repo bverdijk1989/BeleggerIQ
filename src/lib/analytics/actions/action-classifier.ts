@@ -50,6 +50,19 @@ export const DECISION_THRESHOLDS = {
   sellWeightMultiplier: 1.2,
   /** Min-verschil current vs target voor TRIM (relatief, fractie). */
   trimWeightOvershoot: 1.05,
+  // ─────────────────────────────────────────────────────────────
+  // Winner-protection (Buffett-laag).
+  //
+  // "Let your winners run." Een hoge-kwaliteit positie die boven de
+  // cap is gegroeid moet **niet** geforceerd verkocht worden puur op
+  // basis van gewicht. Risk-flags blijven wél SELL triggeren —
+  // bescherming geldt alleen tegen pure concentratie-SELL zonder
+  // andere alarmsignalen.
+  // ─────────────────────────────────────────────────────────────
+  /** Composite ≥ deze drempel = "winner"; concentratie-only SELL → TRIM. */
+  winnerProtectComposite: 70,
+  /** Quality sub-score ≥ deze drempel = "compounder"-kwaliteit. */
+  winnerProtectQuality: 70,
 } as const;
 
 // ============================================================
@@ -156,6 +169,24 @@ function decideSell(
   const sellOnConcentration =
     input.currentWeight > cap * DECISION_THRESHOLDS.sellWeightMultiplier;
 
+  // Winner-protection: een sterke positie die alleen door gewicht
+  // boven cap×1.2 komt mag NIET als SELL worden gevlagd. Buffett-laag —
+  // hoge composite + hoge quality + geen risk-flag → laat de winnaar
+  // doorlopen, val terug op TRIM-pad voor gradueel afbouwen.
+  const isWinner =
+    composite !== null &&
+    composite >= DECISION_THRESHOLDS.winnerProtectComposite &&
+    (input.qualitySubScore ?? 0) >= DECISION_THRESHOLDS.winnerProtectQuality;
+  const concentrationOnlyTrigger =
+    sellOnConcentration &&
+    !sellOnFactor &&
+    !riskCritical &&
+    !input.rebalanceForcesReconsider;
+  if (concentrationOnlyTrigger && isWinner) {
+    // Doorvallen naar TRIM-pad. Geen SELL.
+    return null;
+  }
+
   // Rebalance forceert RECONSIDER (= volledige afbouw plannen)?
   if (input.rebalanceForcesReconsider) {
     rationaleParts.push(
@@ -215,6 +246,21 @@ function decideTrim(
     composite !== null && composite <= DECISION_THRESHOLDS.trimComposite;
   const elevatedRisk = input.positionRisk?.riskClass === "elevated";
 
+  // Detecteer winner-protection: positie die anders SELL had gekregen
+  // op concentratie maar door composite + quality is "doorgevallen".
+  // Markeer dit expliciet zodat de UI het label "let your winners run"
+  // kan tonen i.p.v. een dreigend "afbouwen".
+  const isWinner =
+    composite !== null &&
+    composite >= DECISION_THRESHOLDS.winnerProtectComposite &&
+    (input.qualitySubScore ?? 0) >= DECISION_THRESHOLDS.winnerProtectQuality;
+  const concentrationOnly =
+    aboveCap &&
+    !weakFactor &&
+    !elevatedRisk &&
+    !input.rebalanceForcesTrim;
+  const isWinnerTrim = concentrationOnly && isWinner;
+
   if (input.rebalanceForcesTrim) {
     rationaleParts.push(
       "Rebalance-engine adviseert afbouwen — gewicht ligt boven beleidsdrempel.",
@@ -223,7 +269,9 @@ function decideTrim(
   }
   if (aboveCap) {
     rationaleParts.push(
-      `Positie ${pct(input.currentWeight)} ligt boven de policy-cap (${pct(cap)}).`,
+      isWinnerTrim
+        ? `Sterke positie boven de policy-cap (${pct(input.currentWeight)} > ${pct(cap)}). Niet verkopen — gradueel terug naar cap zodat de winnaar mag doorlopen.`
+        : `Positie ${pct(input.currentWeight)} ligt boven de policy-cap (${pct(cap)}).`,
     );
     sources.push("policy-engine");
   }
@@ -240,15 +288,21 @@ function decideTrim(
 
   if (rationaleParts.length === 0) return null;
 
-  const urgency: ActionUrgency =
-    aboveCap || elevatedRisk ? "MEDIUM" : "LOW";
+  // Winner-trim is bewust LOW-urgency: het is een opportuniteit voor
+  // gradueel risicomanagement, geen alarmsignaal.
+  const urgency: ActionUrgency = isWinnerTrim
+    ? "LOW"
+    : aboveCap || elevatedRisk
+      ? "MEDIUM"
+      : "LOW";
 
   return {
     action: "TRIM",
     urgency,
     rationaleParts,
-    riskImpact:
-      "Verlaagt single-name concentratie; vrijgekomen cash kan herbelegd worden.",
+    riskImpact: isWinnerTrim
+      ? "Beschermt winst gradueel zonder kwaliteitspositie kwijt te raken."
+      : "Verlaagt single-name concentratie; vrijgekomen cash kan herbelegd worden.",
     sources: dedupe(sources),
     confidence: 0.7,
   };

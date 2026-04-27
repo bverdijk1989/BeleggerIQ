@@ -2,6 +2,149 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · Beleggingsstrategie & Praktische Toepasbaarheid (Buffett / Druckenmiller / Wood)
+
+### Persona-samenvatting
+
+**Warren Buffett — long-term, value, anti-overtrading:**
+> "Een hoge-kwaliteit COMPOUNDER die naar 12% groeit (cap 10%) is geen
+> SELL — het is een succes dat je gradueel terug naar cap brengt om
+> portefeuille-balans te behouden. De engine sloeg te hard af. Zonder
+> bescherming dwing je gebruikers winnaars te vroeg te dumpen — de
+> klassieke amateur-fout die rendement op lange termijn doodt." →
+> **Gefixt** via winner-protection.
+
+**Stanley Druckenmiller — macro + risk sizing + asymmetric bets:**
+> "Position-sizing is uniform, niet conviction-weighted. Een composite
+> 85 met 0.9 confidence krijgt dezelfde EUR-allocatie als een composite
+> 72 met 0.6 confidence — dat is geen Druck, dat is een ETF-allocator.
+> De allocation-engine moet asymmetrisch durven sizen wanneer de
+> opportunity asymmetrisch is. Risk-cap blijft, maar binnen die cap mag
+> high-conviction harder duwen." → **P1 — gedocumenteerd, niet
+> gefixt in deze diff (impact op meerdere modules).**
+
+**Cathie Wood — innovatie & disruptie:**
+> "Business-quality scoring leunt op moat + earnings-stability + capital-
+> efficiency. Een Tesla-2018 of Palantir-2020 scoort daar laag op (geen
+> consistente winst, hoge capex, no moat-by-defense) en wordt
+> gelabeld SPECULATIVE. Maar dat zijn precies de namen waar 10x-returns
+> uit komen. De engine mist een INNOVATION-label dat hoge revenue-
+> growth + sterke factor-momentum honoreert ondanks magere earnings." →
+> **P2 — vereist nieuwe revenueGrowth + R&D-intensity inputs in
+> business-engine. Documenteren als toekomstige uitbreiding.**
+
+### Top 10 strategische tekortkomingen
+
+1. **Action-engine kon winnaars verkopen op pure concentratie.** Een
+   compounder die boven cap×1.2 groeit kreeg SELL — Buffett-onvriendelijk.
+   **GEFIXT** (zie code-changes).
+2. **Geen asymmetrische sizing in monthly-buy.** High-conviction
+   posities krijgen geen extra EUR-allocatie binnen de cap. *P1.*
+3. **Business-quality kan disruptors niet herkennen.** COMPOUNDER vereist
+   stabiele earnings + moat; Tesla-style innovatie scoort laag. *P2.*
+4. **Position-cap is statisch op 10%.** Druck zou voor een sterk macro-
+   thema (high-conviction) tijdelijk een 15%-cap accepteren; engine niet. *P3.*
+5. **TRIM-engine onderscheidt niet "gradueel" vs "snel".** Bij winner-
+   trim zou je alleen het overschot boven cap×1.05 willen verkopen, niet
+   alles boven target. *P2.*
+6. **Geen "stale advice"-detectie.** Een SELL-advies dat 30 dagen oud is
+   en niet uitgevoerd zou moeten heroverwogen worden. *P3.*
+7. **Geen tax-aware selling.** Verkopen die belastbare winst genereren
+   zouden in NL-context (box 3) anders gewogen moeten worden dan in
+   tax-loss-harvesting jurisdicties. *P3.*
+8. **€500 maandinleg + duur aandeel = stuck.** Engine adviseert "0
+   stuks ASML" zonder fallback (cumuleer 2 maanden / kleinere positie /
+   fractional indien broker ondersteunt). *P2.*
+9. **Speculative cap (5% per stuk, 10% totaal) is rigid.** Geen
+   uitzondering voor venture-style portfolios — Cathie zou dit te
+   conservatief noemen. *P3, profile-driven later.*
+10. **Geen feedback-loop.** DecisionHistory verzamelt MARKED_DONE /
+    IGNORED data, maar engines gebruiken dat nog niet voor calibration. *P2.*
+
+### Validatievragen — antwoorden
+
+| Vraag | Antwoord vóór | Antwoord na |
+|---|---|---|
+| Straft het model winnaars te snel af? | **Ja**, concentratie-only SELL gold ook voor compounders. | **Nee**: composite≥70 + quality≥70 → TRIM ipv SELL. |
+| Verkoopt het sterke bedrijven te vroeg? | **Soms** (zelfde reden). | **Nee**, gradueel terugbrengen naar cap. |
+| Herkent het echte compounders? | Ja — `BusinessLabel: COMPOUNDER` werkt. | Idem. |
+| Herkent het asymmetrische kansen? | **Beperkt** — uniform sizing. | Beperkt; **P1** open. |
+| Voorkomt het te grote speculatieve posities? | Ja — `LEVERAGED_OR_INVERSE` cap 3%, `CRYPTO` cap 5%. | Idem. |
+| Werkt het bij €500 maandinleg én bij grote portefeuilles? | **Deels** — duur aandeel = 0 stuks zonder uitleg. | Deels; **P2** open. |
+| Zijn adviezen praktisch uitvoerbaar met hele aandelen/ETF-units? | Ja — `computeRebalanceQuantity` floort op integer. | Idem. |
+
+### Verbeteringen — geïmplementeerd in deze diff
+
+#### `src/lib/analytics/actions/action-classifier.ts` — winner-protection
+- **`DECISION_THRESHOLDS.winnerProtectComposite = 70`** en
+  **`winnerProtectQuality = 70`** toegevoegd.
+- **`decideSell()`** krijgt een early-return: een positie die alleen door
+  gewicht (boven cap × 1.2) zou worden verkocht, valt door naar het
+  TRIM-pad als de positie kwalificeert als "winner" (composite ≥ 70 +
+  quality ≥ 70 + geen risk-critical + geen rebalance-RECONSIDER). Risk-
+  flags blijven SELL triggeren — bescherming geldt alleen tegen pure
+  concentratie-SELL.
+- **`decideTrim()`** detecteert dezelfde winner-condities en levert dan:
+  - `urgency: "LOW"` (niet MEDIUM) — geen alarmsignaal.
+  - rationale: "Sterke positie boven de policy-cap. Niet verkopen —
+    gradueel terug naar cap zodat de winnaar mag doorlopen."
+  - riskImpact: "Beschermt winst gradueel zonder kwaliteitspositie kwijt
+    te raken."
+
+#### `src/lib/analytics/actions/action-classifier.test.ts` — winner-protection tests
+- **6 nieuwe tests:**
+  - hoge-kwaliteit positie boven cap×1.2 → TRIM (geen SELL) + LOW urgency.
+  - winner-protection geldt NIET bij risk-critical / zwakke composite /
+    lage quality / rebalance-RECONSIDER.
+  - hoge-kwaliteit positie net boven cap (0.105) krijgt LOW-urgency
+    winner-trim met "winnaar mag doorlopen"-rationale.
+
+### Verbeteringen — aanbevolen voor volgende iteraties
+
+| Prio | Module | Verbetering |
+|---|---|---|
+| **P1** | `allocation-engine/priority.ts` | Conviction-bonus: composite ≥ 80 + confidence ≥ 0.8 krijgt +10pp priority + extra EUR-allocatie binnen de cap (Druck-asymmetrie). |
+| **P1** | `allocation-engine/engine.ts` | Bij €500 budget + dure aandelen: geef "spaar 2 maanden voor 1 ASML" suggestion in plaats van 0-stuks-recommendation. |
+| **P2** | `business/business-score.ts` | Voeg `INNOVATION`-label toe (revenue-growth ≥ 20% YoY + factor-momentum ≥ 70 + R&D-intensity ≥ 10%) — Cathie Wood-tilt. Vereist fundamentals-uitbreiding. |
+| **P2** | `actions/decision-engine.ts` | Schaal TRIM-grootte: bij winner-trim verkoop alleen overschot boven cap×1.05, niet alles boven target. |
+| **P2** | `actions/decision-engine.ts` | Gebruik DecisionHistory voor "stale advice" — adviezen ouder dan 30 dagen krijgen `EXPIRED` met heroverweging. |
+| **P3** | `policy-engine/types.ts` | Profile-driven speculative-cap: `risk_seeker` profile mag CRYPTO 10% / LEVERAGED 5%. |
+| **P3** | `tax/` | Tax-aware sell: in NL box 3 telt onverkochte winst niet als belastbaar; engine kan dan gewone TRIM voorstellen i.p.v. tax-deferred SELL. |
+| **P3** | `actions/dashboard-actions.ts` | Conviction-priority: bij gelijke urgency krijgt hoge-confidence-actie voorrang in de top-3. |
+
+### Scorecard (1-5; 5 = beste)
+
+| Module | Vóór audit | Na audit | Toelichting |
+|---|---|---|---|
+| **Action Engine** | 3 | **4** | Winner-protection toegevoegd. Conviction-priority is P1-tail. |
+| **Monthly Buy Engine** | 3 | 3 | Geen wijziging. €500-budget edge-case is P1; conviction-asymmetrie is P1. |
+| **Rebalance Engine** | 4 | 4 | "Let winners run" via `healthyRunMultiplier` werkt al goed. |
+| **Business Quality Layer** | 3 | 3 | Compounder/Cyclical/Speculative-mapping klopt; INNOVATION-label is P2. |
+| **Opportunity Radar** | 4 | 4 | Geen wijziging — radar herkent QUALITY_PULLBACK + UNDERWEIGHT al. |
+| **Portfolio Policy Engine** | 4 | 4 | Caps zijn defensief en werken. Profile-driven flex is P3. |
+| **Dashboard Decision Cockpit** | 4 | 4 | Geen wijziging — UX-polish + RSC-fix van eerdere diffs. |
+| **Overall strategy-fit** | 3.5 | **4** | Buffett-overtrading-risico is weg. Druck/Wood-thema's zijn P1/P2. |
+
+### Validatie
+- `npm test` → **1097/1098 tests groen** (+6 winner-protection; 1 pre-existing flaky `Date.now()` ms-drift in `opportunity/engine.test.ts`, slaagt op rerun).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+### Aannames
+- **Winner-protection-drempels = 70/70** (composite + quality). Bewust
+  niet symmetrisch met BUY-drempel (70) — een positie met composite 70
+  + quality 50 is geen compounder en mag wél geforceerd worden afgebouwd
+  bij overweging. Quality-pillar is de discriminator.
+- **Risk-flags overrulen winner-protection.** Buffett zou niet zeggen
+  "houd vast" als de risk-engine high/critical roept; bescherming is
+  alleen tegen *concentratie-only* SELL.
+- **TRIM is altijd de fallback**, niet HOLD. Een positie boven cap moet
+  gradueel terug — concentration risk blijft een echt risk-management
+  topic, ook voor winners.
+- **Asymmetrische sizing (Druck) is P1 maar niet in deze diff** — vereist
+  aanpassingen in priority.ts + engine.ts + tests, en heeft impact op
+  bestaande monthly-buy-output. Eerste-in-volgende-cyclus.
+
 ## [Unreleased] - 2026-04-27 · Macro & Economische Validatie (Dalio / Krugman / El-Erian)
 
 ### Persona-samenvatting

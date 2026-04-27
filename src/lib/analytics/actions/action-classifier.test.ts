@@ -59,6 +59,88 @@ describe("classifyAction — SELL pad", () => {
   });
 });
 
+describe("classifyAction — winner-protection (Buffett-laag)", () => {
+  it("hoge-kwaliteit positie boven cap×1.2 wordt NIET geforceerd verkocht", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 82,
+        qualitySubScore: 78,
+        currentWeight: 0.13, // boven cap × 1.2
+        targetWeight: 0.10,
+      }),
+    );
+    expect(r.action).toBe("TRIM");
+    expect(r.urgency).toBe("LOW");
+    expect(r.rationaleParts.join(" ")).toMatch(/winnaar mag doorlopen/i);
+    expect(r.riskImpact).toMatch(/winst gradueel/i);
+  });
+
+  it("winner-protection geldt NIET bij risk-critical flag", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 85,
+        qualitySubScore: 80,
+        currentWeight: 0.13,
+        positionRisk: {
+          ticker: "X",
+          concentrationWeight: 0.13,
+          riskClass: "critical",
+          contributors: [],
+        } as any,
+      }),
+    );
+    expect(r.action).toBe("SELL");
+    expect(r.sources).toContain("risk-engine");
+  });
+
+  it("winner-protection geldt NIET bij zwakke composite (< 70)", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 65,
+        qualitySubScore: 80,
+        currentWeight: 0.13,
+      }),
+    );
+    expect(r.action).toBe("SELL");
+  });
+
+  it("winner-protection geldt NIET bij lage quality (< 70)", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 80,
+        qualitySubScore: 50,
+        currentWeight: 0.13,
+      }),
+    );
+    expect(r.action).toBe("SELL");
+  });
+
+  it("winner-protection geldt NIET wanneer rebalance-engine RECONSIDER forceert", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 85,
+        qualitySubScore: 80,
+        currentWeight: 0.13,
+        rebalanceForcesReconsider: true,
+      }),
+    );
+    expect(r.action).toBe("SELL");
+  });
+
+  it("hoge-kwaliteit positie net boven cap (zonder × 1.2) krijgt LOW-urgency winner-trim", () => {
+    const r = classifyAction(
+      baseInput({
+        composite: 80,
+        qualitySubScore: 75,
+        currentWeight: 0.105, // boven cap, onder cap × 1.2
+      }),
+    );
+    expect(r.action).toBe("TRIM");
+    expect(r.urgency).toBe("LOW");
+    expect(r.rationaleParts.join(" ")).toMatch(/winnaar mag doorlopen/i);
+  });
+});
+
 describe("classifyAction — TRIM pad", () => {
   it("gewicht boven cap triggert TRIM (geen SELL drempel)", () => {
     const r = classifyAction(
