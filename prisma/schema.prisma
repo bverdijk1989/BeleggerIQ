@@ -472,6 +472,10 @@ model MagicLinkToken {
 
   @@unique([email, tokenHash])
   @@index([email, createdAt])
+  // Compound voor de hot-path "vind nog-geldig token voor deze email"
+  // (consume-flow + housekeeping queries). Naast de losse expiresAt-
+  // index zodat reaper op alleen `expiresAt` ook efficient blijft.
+  @@index([email, expiresAt])
   @@index([expiresAt])
 }
 

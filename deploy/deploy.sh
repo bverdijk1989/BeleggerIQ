@@ -45,6 +45,12 @@ echo "== [3/7] npm ci (inclusief devDependencies voor build) =="
 npm ci --no-audit --no-fund
 
 echo "== [4/7] Prisma generate + migrate deploy =="
+# Productie-regel: NOOIT `prisma db push` op productie. Dat sync't
+# schema rechtstreeks zonder migration-historie en kan destructieve
+# kolom-drops uitvoeren bij divergentie. Gebruik altijd
+# `prisma migrate deploy` zodat alle schema-wijzigingen via een
+# version-controlled migration-bestand binnenkomen.
+# Zie docs/DB_MIGRATIONS.md voor de volledige workflow.
 npx prisma generate
 npx prisma migrate deploy
 
