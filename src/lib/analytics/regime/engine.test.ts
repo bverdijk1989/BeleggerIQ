@@ -72,6 +72,8 @@ describe("computeRegimeScore — orchestration", () => {
       volatilityIndex: 13,
       interestRate10y: 0.022,
       creditSpreadBps: 130,
+      inflationYoy: 0.022,
+      yieldCurveSlope: 0.012,
     });
     expect(result.stance).toBe("RISK_ON");
     expect(result.score).toBeGreaterThanOrEqual(65);

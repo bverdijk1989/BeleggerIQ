@@ -46,6 +46,7 @@ describe("runMacroScenarios — basis", () => {
       "MARKET_CRASH",
       "USD_UP_10",
       "RECESSION",
+      "STAGFLATION",
     ]);
     expect(r.generatedAt).toBe(NOW);
   });

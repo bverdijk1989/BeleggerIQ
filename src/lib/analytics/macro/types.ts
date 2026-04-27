@@ -16,7 +16,8 @@ export type MacroScenarioId =
   | "RATES_UP_2"
   | "MARKET_CRASH"
   | "USD_UP_10"
-  | "RECESSION";
+  | "RECESSION"
+  | "STAGFLATION";
 
 export interface PositionImpact {
   ticker: string;

@@ -115,6 +115,34 @@ const RECESSION_SHOCKS: Record<SectorBucket, number> = {
   unknown: -0.18,
 };
 
+/**
+ * STAGFLATION: hoge inflatie + zwakke groei (1973-74 / 2022-style).
+ *  - Growth/tech: zwaar geraakt (lange-duration cashflows + multiple-
+ *    compression door rente).
+ *  - Discretionary/financials/staples: gemengd; staples houden enige
+ *    pricing-power, discretionary lijdt onder reëel-koopkracht-verlies.
+ *  - **Energy/materials**: positief — pricing-power op grondstoffen.
+ *  - **Healthcare/utilities**: defensief, maar utilities hebben
+ *    schuldbalans-risico bij hogere rente.
+ *  - Bonds: niet expliciet hier (zit in `assetClassShockMultiplier`),
+ *    maar BOND krijgt sowieso een crash-multiplier in het rates-pad.
+ */
+const STAGFLATION_SHOCKS: Record<SectorBucket, number> = {
+  tech: -0.25,
+  growth: -0.30,
+  "consumer-discretionary": -0.18,
+  "consumer-staples": -0.04,
+  financials: -0.10,
+  energy: 0.15,
+  materials: 0.08,
+  industrials: -0.12,
+  healthcare: -0.05,
+  "real-estate": -0.20, // rate-sensitive bij hoge nominale rente
+  utilities: -0.10,
+  communication: -0.15,
+  unknown: -0.12,
+};
+
 // ============================================================
 //  Engine input
 // ============================================================
@@ -183,6 +211,17 @@ export function runMacroScenarios(
         "Brede recessie; cyclische sectoren -25 tot -30%, staples/healthcare houden stand.",
       input,
       shockFn: (entry) => sectorShock(entry, RECESSION_SHOCKS, "recession"),
+      topN,
+    }),
+    runScenario({
+      id: "STAGFLATION",
+      label: "Stagflatie",
+      description:
+        "Hoge inflatie + zwakke groei (1973-stijl). Growth/tech zwaar; energie + materialen profiteren van pricing-power.",
+      input,
+      // Hergebruik `recession`-multiplier voor asset-class-effect: bonds
+      // worden zwaar geraakt (rate-pad), commodities profiteren.
+      shockFn: (entry) => sectorShock(entry, STAGFLATION_SHOCKS, "recession"),
       topN,
     }),
   ];

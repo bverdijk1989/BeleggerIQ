@@ -2,6 +2,158 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · Macro & Economische Validatie (Dalio / Krugman / El-Erian)
+
+### Persona-samenvatting
+
+**Ray Dalio — economische cycli, all-weather portfolios:**
+> "De engine ziet rente, vol en spreads, maar mist twee klassieke
+> regime-signalen: **inflatie** en de **yield-curve-slope**. Een
+> regime-classificatie zonder inflation-as kan stagflatie niet
+> herkennen — exact de meest destructieve combi voor 60/40. Voeg
+> beide toe en de stance schaalt netjes met cyclische fases. Verder
+> zou ik in een v2 aandringen op risk-parity-achtige asset-class-
+> tilting; nu is alles equity-centric."
+
+**Paul Krugman — macro-logica & beleidseffecten:**
+> "De rates-driver klopt directioneel maar mist de
+> **yield-curve-inversie**, statistisch het sterkste 12-18m recessie-
+> signaal sinds 1970. Inflatie verdiend ook een aparte plek; high-
+> nominal-rates zonder hoge inflatie hebben heel andere implicaties
+> dan high-nominal-rates met 8% CPI. Centrale-bank-beleid (CB-pivot,
+> QE/QT) zit nog niet ingebakken — toekomstige iteratie."
+
+**Mohamed El-Erian — markten ↔ beleid, geopolitiek:**
+> "Vier scenarios is een goede start, maar **STAGFLATION** ontbrak —
+> de waarschijnlijk relevantste shock voor 2025-2027. De Cockpit
+> moet ook reageren op geopolitieke spikes (oil shock, Taiwan-
+> scenario) en CB-pivots. Voor MVP is stagflatie de hoogste prioriteit;
+> geopolitiek kan later via een aparte 'tail-risk' scenario set."
+
+### Belangrijkste zwakke aannames (gevonden tijdens audit)
+
+1. **Geen inflatie-driver** in de regime-engine — bull-bias bij negatieve
+   reële rente. **GEFIXT** (zie code-changes hieronder).
+2. **Geen yield-curve-slope-driver** — recessiesignaal ontbrak. **GEFIXT.**
+3. **STAGFLATION-scenario ontbrak** in macro-engine. **GEFIXT.**
+4. **Statische sector-shock-tabellen.** Tijdens echte stress lopen
+   correlaties op naar ~1; defensieve sectoren bieden minder bescherming
+   dan de tabel suggereert. *Open: future tail-risk profile.*
+5. **USD-shock alleen unidirectional** (`USD_UP_10`). Een EUR-investeerder
+   met USD-blootstelling moet ook USD-down kunnen testen. *Open.*
+6. **Risk-engine is regime-blind.** Concentratie-flags reageren niet op
+   `regime.stance`; in DEFENSIVE regime zou de `top5Weight`-drempel
+   strenger mogen zijn. *Open.*
+7. **Allocation-engine "preferCoreEtf" alleen in DEFENSIVE.** Late-cycle
+   gedrag (RISK_ON + hoge waardering + stijgende rente) krijgt geen
+   extra voorzichtigheid. *Open: late-cycle holdback.*
+8. **Geen CB-pivot-detectie.** Centrale-bank-omslag is een grote
+   re-rating-trigger maar zit nergens in de signal-set. *Open.*
+9. **Geopolitiek staat niet expliciet in scenarios.** Oil-shock /
+   Taiwan / geo-stress moet apart kunnen worden getest. *Open.*
+10. **Volatility-driver overweegt VIX-niveau, niet -verandering.** Een
+    snelle VIX-stijging vanaf laag niveau is gevaarlijker dan stabiel
+    hoog niveau. *Open.*
+
+### Bull-market bias — bevindingen
+
+- **Rates-driver tilt richting risk-on bij lage nominale rente** zonder
+  rekening te houden met inflatie. ZIRP + hoge inflatie ≠ ZIRP + 2%
+  inflatie. **GEFIXT** — inflation-driver corrigeert.
+- **Trend-driver leunt op 12m-return** maar niet op drawdown of
+  earnings-revisie-momentum. Populair in bull-markets; faalt in 2008-
+  achtige resets waar trend al keerde maar de score lag (lag bias).
+- **Valuation-percentile heeft geen mean-reversion-signaal.** Boven
+  90%-percentile blijft scoren tussen 15-20; geen versterkte penalty
+  voor extreme valuation. *Open: dampening boven p95.*
+- **Spread-driver clipt op 600 bps**. Stress-events (bv. Maart 2020,
+  GFC) zien spreads >800-1200; daar levert de driver geen extra signaal.
+
+### Macrodata-gewicht — review
+
+**Te zwaar:**
+- Geen.
+
+**Te licht:**
+- **Inflation** had geen gewicht (was niet eens een driver) → 8%. Krugman
+  zou aandringen op 12-15%; ik kies 8% om historisch werkende
+  valuation/trend-drivers niet te ondermijnen. Bewuste afweging.
+- **Yield-curve** had geen gewicht → 7%. Dalio zou zeggen "te licht voor
+  zo'n sterk historisch signaal"; we kunnen dit naar 10% optillen na
+  meting. *Tunable.*
+- **Volatility-momentum** (VIX-verandering) → 0% gewicht. Klein
+  toevoeging na user-feedback in volgende iteratie.
+
+### Concrete verbeteringen — geïmplementeerd in deze diff
+
+#### `src/lib/analytics/regime/scoring.ts`
+- **`scoreInflation`** — nieuwe driver. 0-target/1-3% target-zone → 80;
+  3-5% → 50; 5-7% → 30; ≥7% → 15. Bewust hardere penalty bij hoge
+  inflatie (Dalio: stagflatie is asymmetrisch riskanter dan deflatie
+  voor 60/40).
+- **`scoreCurveSlope`** — nieuwe driver. ≥+1% → 80; vlak → 60; lichte
+  inversie → 35; diepe inversie (≤-50bps) → 15. Krugman/Dalio recessie-
+  signaal.
+- **`WEIGHTS`** — herverdeeld: valuation 0.18, trend 0.25, volatility
+  0.17, rates 0.12, spread 0.13, **inflation 0.08, curveSlope 0.07**.
+  Som = 1.0.
+
+#### `src/lib/analytics/macro/scenarios.ts`
+- **`STAGFLATION_SHOCKS`** — nieuwe sector-shock-tabel. Tech/growth -25
+  tot -30%; energy +15%; materials +8%; staples/healthcare lichte
+  defensieve werking.
+- **`STAGFLATION` als 5e scenario** in `runMacroScenarios`. Label
+  "Stagflatie", description verwijst expliciet naar "1973-stijl"
+  voor herkenbaarheid.
+
+#### `src/lib/analytics/macro/types.ts`
+- **`MacroScenarioId`** uitgebreid met `"STAGFLATION"`.
+
+### Concrete verbeteringen — aanbevolen voor toekomstige iteratie
+
+| Prio | Module | Verbetering |
+|---|---|---|
+| **P1** | `risk-engine` | Maak `top5Weight`-thresholds regime-aware (DEFENSIVE → -10pp strikter). |
+| **P1** | `allocation-engine` | Voeg late-cycle holdback toe (RISK_ON + valuation>p80 + curve flat → 10% extra cash). |
+| **P2** | `macro/scenarios` | Voeg `USD_DOWN_10` mirror, `OIL_SHOCK_50` en `CB_PIVOT_DOVISH` scenario's toe. |
+| **P2** | `regime/scoring` | Voeg `volatilityChange` en `breadthChange` als momentum-drivers (snelle verandering > niveau). |
+| **P3** | `regime/scoring` | Stagger spread-driver: clip op 800-1200bps i.p.v. 600. |
+| **P3** | `opportunity-radar` | Schaal scoring met regime: in DEFENSIVE → demote MOMENTUM_REVERSAL + UNDERWEIGHT_HIGH_CONVICTION. |
+| **P3** | `dashboard/page.tsx` | Voeg `inflationYoy` + `yieldCurveSlope` aan `fetchRegimeInputs` toe (data-bron uitbreiding). |
+
+### Scorecard (1-5; 5 = beste)
+
+| Engine | Vóór audit | Na audit | Toelichting |
+|---|---|---|---|
+| **Market Regime Engine** | 3 | **4** | Inflatie + curve-slope toegevoegd. Mist nog vol-momentum + CB-pivot. |
+| **Scenario Engine** | 3 | **4** | STAGFLATION erbij. Mist USD-down, oil-shock, CB-pivot. |
+| **Macro inputs** | 2 | **3** | Inputs zijn er nu; data-bron in `fetchRegimeInputs` moet 'inflationYoy' en 'yieldCurveSlope' nog leveren. |
+| **Monthly Buy Engine** | 3 | 3 | Geen wijziging. Defensief-budget-cut werkt; late-cycle ontbreekt nog. |
+| **Risk Engine** | 3 | 3 | Geen wijziging in deze diff. Regime-aware thresholds zijn P1. |
+| **Opportunity Radar** | 3 | 3 | Geen wijziging in deze diff. Regime-tilt staat op P3. |
+| **Overall economic consistency** | 3 | **3.5** | Twee critical regime-signalen + stagflatie-scenario erbij; rest is roadmap. |
+
+### Validatie
+- `npm test` → **1092/1092 tests groen** (+19 macro-validatie + stagflatie).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+### Aannames
+
+- **Inflation-gewicht 8%, curve-slope 7%** — bewust beneden Dalio's
+  intuïtieve aanbeveling (12-15% / 10%) om historisch werkende
+  valuation/trend-drivers dominant te houden. Tunable.
+- **Stagflatie-shocks komen uit Bridgewater-style heuristiek** — energie
+  +15% / tech -25 tot -30% / staples licht defensief; consistent met
+  1973-74 en 2022-Q1 patterns. **Geen exact-fit op specifiek decennium.**
+- **Bond-asset-class krijgt sowieso de RECESSION-multiplier voor het
+  rate-pad** in stagflatie — bewuste keuze omdat we nog geen aparte
+  BOND-shock-multiplier voor stagflatie hebben.
+- **Dashboard-page input-fetching** levert `inflationYoy` en
+  `yieldCurveSlope` nog niet uit `fetchRegimeInputs`; engine geeft daar
+  `score: null` voor terug en herweegt over actieve drivers — output
+  blijft consistent. Aansluiten van macro-data is een follow-up.
+
 ## [Unreleased] - 2026-04-27 · Decision History (DecisionSnapshot model + history-preview)
 
 ### Added

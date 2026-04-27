@@ -30,18 +30,37 @@ export interface RegimeScoreInput {
   interestRate10y?: number | null;
   /** Verandering 10y yield over 12 maanden (in procentpunten, 0.01 = 100 bps). */
   rateChange1y?: number | null;
+  /** 10y - 2y yield curve slope in procentpunten (0.01 = 100bps).
+   *  Negatief = inverse curve = klassiek recessiesignaal (Dalio/Krugman). */
+  yieldCurveSlope?: number | null;
 
   // Stress / spreads
   /** High-yield credit spread in basispunten. */
   creditSpreadBps?: number | null;
+
+  // Inflatie (toegevoegd: stagflatie + reële-rente-context)
+  /** YoY headline-CPI als fractie (0.045 = 4,5%). */
+  inflationYoy?: number | null;
 }
 
+/**
+ * Driver-gewichten. Som = 1.0. Toegevoegd t.o.v. v1:
+ *  - inflation (0.10) — hoge inflatie drukt risk-on stance
+ *    (Dalio: "elke regime-classificatie zonder inflation-as is incompleet").
+ *  - curveSlope (0.10) — yield-curve-inversie is een klassiek recessie-
+ *    signaal (Krugman/Dalio).
+ *
+ * Andere gewichten zijn evenredig verlaagd zodat valuation/trend dominant
+ * blijven maar inflation/curve een kleine maar zichtbare bijdrage leveren.
+ */
 const WEIGHTS = {
-  valuation: 0.2,
-  trend: 0.3,
-  volatility: 0.2,
-  rates: 0.15,
-  spread: 0.15,
+  valuation: 0.18,
+  trend: 0.25,
+  volatility: 0.17,
+  rates: 0.12,
+  spread: 0.13,
+  inflation: 0.08,
+  curveSlope: 0.07,
 } as const;
 
 // ============================================================
@@ -256,6 +275,97 @@ export function scoreSpread(input: RegimeScoreInput): RegimeSubScore {
 }
 
 /**
+ * Inflatie-driver. Pure functie van YoY-CPI.
+ *
+ *  - ≤ 1%  → 60 (deflatie-zone, gevaarlijk maar niet risk-off-bullish; Japan).
+ *  - 1-3%  → 80 (zoete-zone voor risk-assets; centrale-bank-target).
+ *  - 3-5%  → 50 (verhoogd; CB-aandacht).
+ *  - 5-7%  → 30 (hoog; restrictief beleid).
+ *  - ≥ 7%  → 15 (stagflatie-risico; equities en bonds beide kwetsbaar).
+ *
+ * Bewuste keuze: hoge inflatie wordt zwaarder gestraft dan deflatie.
+ * Een 1970s-stijl scenario (rente stijgt + groei daalt) is voor een
+ * 60/40-portefeuille de meest destructieve combi.
+ */
+export function scoreInflation(input: RegimeScoreInput): RegimeSubScore {
+  const spec: RegimeSubScore = {
+    key: "inflation",
+    label: "Inflatie",
+    weight: WEIGHTS.inflation,
+    score: null,
+  };
+
+  if (
+    typeof input.inflationYoy !== "number" ||
+    !Number.isFinite(input.inflationYoy)
+  ) {
+    return spec;
+  }
+
+  const yoy = input.inflationYoy;
+  let score: number;
+  if (yoy <= 0.01) score = 60;
+  else if (yoy <= 0.03) score = 80;
+  else if (yoy <= 0.05) score = 50;
+  else if (yoy <= 0.07) score = 30;
+  else score = 15;
+
+  spec.score = score;
+  spec.value = yoy;
+  spec.rationale =
+    yoy <= 0.025
+      ? `Inflatie ${pct(yoy)} — binnen CB-target.`
+      : yoy >= 0.05
+        ? `Inflatie ${pct(yoy)} — restrictief beleid, stagflatie-risico.`
+        : `Inflatie ${pct(yoy)} — verhoogd, CB-aandacht.`;
+  return spec;
+}
+
+/**
+ * Yield-curve-slope-driver. 10y minus 2y in procentpunten.
+ *
+ *  - ≥ +1%   → 80 (steile curve, bullish op groei + bank-margin).
+ *  - 0..+1%  → 60 (vlak maar positief).
+ *  - 0..-0.5% → 35 (lichte inversie; vroege-stage signaal).
+ *  - ≤ -0.5% → 15 (diepe inversie; klassiek recessie-signaal,
+ *               historisch >80% hit-rate over 12-18m).
+ *
+ * Bron-context: Estrella & Mishkin (1998), Dalio "Big Debt Cycles".
+ */
+export function scoreCurveSlope(input: RegimeScoreInput): RegimeSubScore {
+  const spec: RegimeSubScore = {
+    key: "curveSlope",
+    label: "Yield-curve",
+    weight: WEIGHTS.curveSlope,
+    score: null,
+  };
+
+  if (
+    typeof input.yieldCurveSlope !== "number" ||
+    !Number.isFinite(input.yieldCurveSlope)
+  ) {
+    return spec;
+  }
+
+  const slope = input.yieldCurveSlope;
+  let score: number;
+  if (slope >= 0.01) score = 80;
+  else if (slope >= 0) score = 60;
+  else if (slope >= -0.005) score = 35;
+  else score = 15;
+
+  spec.score = score;
+  spec.value = slope;
+  spec.rationale =
+    slope >= 0.01
+      ? `Steile yield-curve (10y−2y ${signedPct(slope)}) — groei-supportief.`
+      : slope < 0
+        ? `Inverse yield-curve (10y−2y ${signedPct(slope)}) — historisch recessie-signaal.`
+        : `Vlakke yield-curve (10y−2y ${signedPct(slope)}) — laat-cyclisch.`;
+  return spec;
+}
+
+/**
  * Produceer alle sub-scores in één aanroep. Handig voor de engine en tests.
  */
 export function scoreAllDrivers(input: RegimeScoreInput): RegimeSubScore[] {
@@ -265,6 +375,8 @@ export function scoreAllDrivers(input: RegimeScoreInput): RegimeSubScore[] {
     scoreVolatility(input),
     scoreRates(input),
     scoreSpread(input),
+    scoreInflation(input),
+    scoreCurveSlope(input),
   ];
 }
 
