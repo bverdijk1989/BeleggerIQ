@@ -7,8 +7,10 @@ import { cn } from "@/lib/utils";
  *
  * Layout-principes:
  *  - **Above-the-fold-viewport** (eerste schermhoogte) bevat de
- *    Primary Action + Portfolio Status. Op desktop ≥ 1024px is dit
- *    een sticky-feel zonder dat het echt sticky is.
+ *    Primary Action + Portfolio Status. Scrollt mee met de pagina —
+ *    NIET sticky meer. Sticky bleek de onderliggende secties af te
+ *    dekken (z-index 20) waardoor risk/opportunity-cards onleesbaar
+ *    werden bij scrollen op desktop.
  *  - Onder de viewport: 2-koloms risk/opportunities + allocation/scenario.
  *  - Mobile-first: alle kolommen stapelen onder 768px.
  *  - Spacing-ritme: `gap-4` (16px) tussen secties; `gap-6` (24px)
@@ -45,19 +47,13 @@ export function DecisionCockpitLayout({
 
       {/* Above-the-fold zone: primary action + status.
        *
-       * Sticky op desktop ≥ 1024px zodat de primary-action zichtbaar
-       * blijft tijdens scrollen. Mobile: sticky uit. Spacing: gap-3
-       * binnen de zone (compact), gap-6 naar de volgende sectie
-       * (visueel onderscheid tussen "wat doe ik nu" en "context").
+       * Geen sticky meer — eerdere `lg:sticky lg:top-4 lg:z-20` legde
+       * deze zone bovenop onderliggende secties tijdens scrollen, wat
+       * cards onleesbaar maakte. Spacing: gap-3 binnen de zone
+       * (compact), gap-6 naar de volgende sectie (default `space-y-6`
+       * van de wrapper).
        */}
-      <section
-        aria-label="Direct besluit"
-        className={cn(
-          "space-y-3",
-          "lg:sticky lg:top-4 lg:z-20",
-          "lg:rounded-xl lg:border lg:border-border/40 lg:bg-background/95 lg:p-3 lg:shadow-sm lg:backdrop-blur",
-        )}
-      >
+      <section aria-label="Direct besluit" className="space-y-3">
         {primaryAction}
         {status}
       </section>
