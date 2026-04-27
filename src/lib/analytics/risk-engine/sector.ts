@@ -20,9 +20,11 @@ import {
  * single-sector — ze als "Onbekend" tellen geeft fout-positieve
  * sector-concentratie-flags voor ETF-only portefeuilles.
  *
- * Een EQUITY/REIT *zonder* sector-data blijft wél als "Onbekend"
- * meegeteld; dat is een data-quality-signaal dat de gebruiker hoort
- * te zien.
+ * **Sector-data-filter**: EQUITY/REIT zonder sector-data tellen óók
+ * niet mee; ze zouden anders een misleidende "Onbekend"-bucket vullen
+ * en de UI zou een data-quality-issue als sector-bias presenteren.
+ * Data-coverage is een apart signaal — surface'd via
+ * `assessHoldingQuality` op de portfolio-pagina, niet hier.
  *
  * Weights blijven genormaliseerd tegen het totale portfolio-volume
  * zodat een 50% ETF + 50% tech-aandelen-portefeuille `topSector =
@@ -32,18 +34,20 @@ import {
 
 const SECTOR_ELIGIBLE_ASSET_CLASSES = new Set(["EQUITY", "REIT"]);
 
+function hasSectorData(sector: string | null | undefined): sector is string {
+  return typeof sector === "string" && sector.trim().length > 0;
+}
+
 export function computeSectorAllocation(
   valuations: HoldingValuation[],
   totalValue: number,
 ): AllocationSlice[] {
-  const eligible = valuations.filter((v) =>
-    SECTOR_ELIGIBLE_ASSET_CLASSES.has(v.holding.assetClass),
+  const eligible = valuations.filter(
+    (v) =>
+      SECTOR_ELIGIBLE_ASSET_CLASSES.has(v.holding.assetClass) &&
+      hasSectorData(v.holding.sector),
   );
-  return aggregateAllocation(
-    eligible,
-    (v) => v.holding.sector ?? null,
-    totalValue,
-  );
+  return aggregateAllocation(eligible, (v) => v.holding.sector ?? null, totalValue);
 }
 
 export function topSector(

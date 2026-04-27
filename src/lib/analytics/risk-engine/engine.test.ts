@@ -162,9 +162,11 @@ describe("buildRiskReport", () => {
     expect(report.flags.some((f) => f.code === "concentration.sector")).toBe(false);
   });
 
-  it("EQUITY zonder sector-data telt nog wél als 'Onbekend' (data-quality-signaal)", () => {
-    // Een aandeel zonder sector-info is GEEN ETF-quirk maar een
-    // enrichment-gat dat de gebruiker hoort te zien.
+  it("EQUITY zonder sector-data wordt NIET als 'Onbekend' in de sector-allocatie getoond", () => {
+    // Een aandeel zonder sector-info is een data-quality-issue dat
+    // op de portfolio-pagina via assessHoldingQuality wordt
+    // gesurface'd — niet als sector-concentratie. De sector-chart
+    // mag geen misleidende "Onbekend 100%" laten zien.
     const holdings = [
       holding({
         id: "h1",
@@ -185,7 +187,51 @@ describe("buildRiskReport", () => {
       totalValue,
     });
 
-    expect(report.topSector?.label).toBe("Onbekend");
+    expect(report.exposures.bySector).toEqual([]);
+    expect(report.topSector).toBeUndefined();
+    expect(
+      report.flags.some((f) => f.code === "concentration.sector"),
+    ).toBe(false);
+  });
+
+  it("Mixed: 70% EQUITY zonder sector + 30% Tech → sector-allocatie toont alleen Tech (data-gap niet als bias)", () => {
+    // Gebruiker zag voorheen "Onbekend 70%" als sector-zwaartepunt.
+    // Dat is een enrichment-gap, niet een echte sector-bias. De
+    // sector-chart toont nu alleen sectoren mét data.
+    const holdings = [
+      holding({
+        id: "h1",
+        ticker: "MISSING",
+        assetClass: "EQUITY",
+        sector: null,
+        currentPrice: 700,
+        quantity: 1,
+      }),
+      holding({
+        id: "h2",
+        ticker: "ASML",
+        assetClass: "EQUITY",
+        sector: "Technology",
+        currentPrice: 300,
+        quantity: 1,
+      }),
+    ];
+    const valuations = holdings.map(valuation);
+    const totalValue = valuations.reduce((sum, v) => sum + v.marketValueBase, 0);
+
+    const report = buildRiskReport({
+      portfolioId: "p1",
+      baseCurrency: "EUR",
+      valuations,
+      totalValue,
+    });
+
+    expect(report.exposures.bySector.map((s) => s.label)).toEqual([
+      "Technology",
+    ]);
+    expect(report.topSector?.label).toBe("Technology");
+    // Weight = 30% van TOTAAL portfolio (niet 100% van known-sector).
+    expect(report.topSector?.weight).toBeCloseTo(0.3, 2);
   });
 
   it("mixed ETF + single-stock: weight relatief tot total-portfolio (50% tech-stocks + 50% ETF → topSector 50%)", () => {
