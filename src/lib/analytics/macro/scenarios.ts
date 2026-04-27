@@ -143,6 +143,34 @@ const STAGFLATION_SHOCKS: Record<SectorBucket, number> = {
   unknown: -0.12,
 };
 
+/**
+ * BLACK_SWAN: brede markt -50%, correlatie-spike naar ~1 (Taleb-stijl).
+ *
+ * In een echte stress-event vallen defensieve sectoren ook uit elkaar
+ * — geen sector biedt nog meaningful protection. Engine-aanname is
+ * dat de buffer-spread tussen defensief en cyclisch zakt naar ~10pp
+ * (in normale crashes is dat ~20pp). Dit voorkomt dat een
+ * defensief-zware portefeuille "te veilig" oogt in tail-events.
+ *
+ * Gebaseerd op: 1929 (-89% peak-to-trough), 2008 (-57% S&P), 2020Q1
+ * (-34% in 5 weken — defensief slechts ~3pp beter dan brede markt).
+ */
+const BLACK_SWAN_SHOCKS: Record<SectorBucket, number> = {
+  tech: -0.55,
+  growth: -0.60,
+  "consumer-discretionary": -0.50,
+  "consumer-staples": -0.40, // klassiek "veilig" maar ook -40% in tail
+  financials: -0.55,
+  energy: -0.50,
+  materials: -0.50,
+  industrials: -0.50,
+  healthcare: -0.42,
+  "real-estate": -0.55,
+  utilities: -0.38,
+  communication: -0.45,
+  unknown: -0.50,
+};
+
 // ============================================================
 //  Engine input
 // ============================================================
@@ -222,6 +250,24 @@ export function runMacroScenarios(
       // Hergebruik `recession`-multiplier voor asset-class-effect: bonds
       // worden zwaar geraakt (rate-pad), commodities profiteren.
       shockFn: (entry) => sectorShock(entry, STAGFLATION_SHOCKS, "recession"),
+      topN,
+    }),
+    runScenario({
+      id: "BLACK_SWAN",
+      label: "Black Swan (markt -50%)",
+      description:
+        "Tail-event in Taleb-stijl: brede markt -50%, correlaties spiken naar ~1, defensieve sectoren bieden minimaal 10pp buffer (niet 20). Voorkomt 'schijnveiligheid' van defensieve portefeuilles.",
+      input,
+      shockFn: (entry) => sectorShock(entry, BLACK_SWAN_SHOCKS, "crash"),
+      topN,
+    }),
+    runScenarioFn({
+      id: "TOP_POSITION_BLOWUP",
+      label: "Grootste positie -70%",
+      description:
+        "Idiosyncratisch single-name-event (fraude, accounting-misser, bedrijfsspecifieke implosie zoals Enron/Wirecard). Grootste positie -70%; rest van de portefeuille onaangeroerd.",
+      input,
+      computeImpact: computeTopPositionBlowup,
       topN,
     }),
   ];
@@ -304,6 +350,114 @@ function runScenario(params: RunScenarioInput): MacroScenarioResult {
     verdict,
     warnings,
   };
+}
+
+/**
+ * Runner-variant voor scenarios die NIET via een uniforme sector-shock-
+ * tabel werken (bv. idiosyncratische single-name events). De caller
+ * levert een `computeImpact`-functie die een PositionImpact[]
+ * retourneert; de runner zorgt voor de aggregaten + verdict.
+ */
+interface RunScenarioFnInput {
+  id: MacroScenarioId;
+  label: string;
+  description: string;
+  input: RunMacroScenariosInput;
+  computeImpact: (input: RunMacroScenariosInput) => PositionImpact[];
+  topN: number;
+}
+
+function runScenarioFn(params: RunScenarioFnInput): MacroScenarioResult {
+  const { input, computeImpact, topN } = params;
+  const total = input.totalValue;
+  const warnings: string[] = [];
+
+  if (total <= 0) {
+    warnings.push("Totale portefeuille-waarde is 0 — scenario is niet zinvol.");
+    return emptyResult(
+      { ...params, shockFn: () => 0 },
+      warnings,
+    );
+  }
+  if (input.positions.length === 0) {
+    warnings.push("Geen posities in input — niets te berekenen.");
+    return emptyResult(
+      { ...params, shockFn: () => 0 },
+      warnings,
+    );
+  }
+
+  const impacts = computeImpact(input);
+  const portfolioImpact = impacts.reduce((s, p) => s + p.contribution, 0);
+  const portfolioImpactAmount = portfolioImpact * total;
+
+  const losers = [...impacts]
+    .filter((p) => p.contribution < 0)
+    .sort((a, b) => a.contribution - b.contribution)
+    .slice(0, topN);
+  const winners = [...impacts]
+    .filter((p) => p.contribution > 0)
+    .sort((a, b) => b.contribution - a.contribution)
+    .slice(0, topN);
+
+  const defensiveStrength = computeDefensiveStrength({
+    scenarioId: params.id,
+    impacts,
+    portfolioImpact,
+  });
+  const verdict = buildVerdict(
+    params.id,
+    params.label,
+    portfolioImpact,
+    defensiveStrength,
+  );
+
+  return {
+    scenario: params.id,
+    label: params.label,
+    description: params.description,
+    portfolioImpact,
+    portfolioImpactAmount,
+    biggestLosers: losers,
+    biggestWinners: winners,
+    defensiveStrength,
+    verdict,
+    warnings,
+  };
+}
+
+/**
+ * TOP_POSITION_BLOWUP — single-name implosie. Pakt de zwaarst-wegende
+ * positie en past een -70%-shock toe; alle andere posities krijgen
+ * shock=0. Modelleert idiosyncratisch event (Enron/Wirecard-stijl).
+ */
+function computeTopPositionBlowup(
+  input: RunMacroScenariosInput,
+): PositionImpact[] {
+  const total = input.totalValue;
+  if (total <= 0 || input.positions.length === 0) return [];
+
+  // Zwaarste positie identificeren.
+  let maxIndex = 0;
+  let maxValue = input.positions[0]!.marketValueBase;
+  for (let i = 1; i < input.positions.length; i++) {
+    if (input.positions[i]!.marketValueBase > maxValue) {
+      maxIndex = i;
+      maxValue = input.positions[i]!.marketValueBase;
+    }
+  }
+
+  return input.positions.map((entry, i) => {
+    const weight = entry.marketValueBase / total;
+    const shock = i === maxIndex ? -0.70 : 0;
+    return {
+      ticker: entry.holding.ticker,
+      name: entry.holding.name,
+      weight,
+      shock,
+      contribution: weight * shock,
+    };
+  });
 }
 
 function emptyResult(

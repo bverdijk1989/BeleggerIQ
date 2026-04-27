@@ -2,6 +2,205 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · Risk, Compliance & Reality Check (Taleb / Marks)
+
+### Persona-samenvatting
+
+**Nassim Nicholas Taleb — black swans & tail risk:**
+> "Je MARKET_CRASH-scenario is -20% — dat is geen tail-event, dat is
+> een doordeweekse correctie. Je echte test is **markt -50%**, en
+> daar moet je defensieve sectoren niet doen alsof ze beschermen.
+> In 1929, 2008, 2020Q1: correlaties spiken naar 1, alles valt mee.
+> En je hebt geen single-name implosie scenario — Enron-, Wirecard-,
+> Lehman-houders hadden ook 10% in 'kwaliteitspositie' staan. **Een
+> portefeuille die black swans niet expliciet test heeft schijnzekerheid.**" →
+> **Beide gefixt.**
+
+**Howard Marks — marktcycli & risico-inschatting:**
+> "Het model is te optimistisch over wat 'defensief' betekent. Je
+> portefeuille kan in een bull-market 'low risk' tonen omdat
+> volatility laag is — maar dat is precies wanneer risico het hoogst
+> is. Voeg cycle-aware-disclaimers toe en wees expliciet over wat de
+> simulatie *niet* dekt." → **Disclaimers + cycle-aware preparation
+> in tail-scenario's. Volledige cycle-meter is P1.**
+
+### Top-10 reality-check risico's
+
+1. **Geen markt -50% scenario.** MARKET_CRASH was -20%; tail-event
+   ontbrak. **GEFIXT** — `BLACK_SWAN` met -50% brede markt + correlatie-
+   spike (defensief slechts ~10pp buffer i.p.v. 20pp).
+2. **Geen single-name implosie scenario.** Enron/Wirecard-stijl event
+   werd niet getest. **GEFIXT** — `TOP_POSITION_BLOWUP` schokt grootste
+   positie -70%.
+3. **Defensieve sectoren ogen 'safe' in stress-tests.** STAGFLATION
+   en RECESSION-tabellen geven utilities/staples 4-8% verlies; in
+   echte tail-events is dat -35-40%. **Gefixt** in `BLACK_SWAN_SHOCKS`.
+4. **USD-shock unidirectioneel.** Alleen `USD_UP_10`; `USD_DOWN_20`
+   ontbreekt. *P1.*
+5. **Rate-shock alleen +2%.** Geen `RATES_UP_5` voor 1994/2022-stijl
+   bond-rout. *P2.*
+6. **Risk-engine ziet geen "model uncertainty" warning.** Output toont
+   altijd één getal zonder onzekerheidsband. *P2.*
+7. **Volatility = lage volatiliteit ≠ laag risico** (Marks): bull-
+   market-rust is precies wanneer drawdown-risico hoog is.
+   `riskClass` reageert niet op cyclus-fase. *P2.*
+8. **Action-engine SELL bij composite < 25 is hard cutoff.** Bij
+   factor-faalpunten (foutief lage score door data-issue) krijgt user
+   SELL. Wel beschermd door composite + risk + rebalance-stack, maar
+   geen explicit "model disagreement"-detector. *P2.*
+9. **AI-explain-disclaimer ontbreekt expliciete "geen advies"-zin** op
+   de zichtbare laag (zit wel in tooltip). *P3 — UI polish.*
+10. **Hoge risicotolerantie geeft minder rem.** AGGRESSIVE-profile heeft
+    geen extra hard-cap voor speculatieve assets boven `policy.maxPositionWeight`. *P2.*
+
+### Waar de app te optimistisch is
+
+- **Stress-scenarios stoppen bij -20%.** Zonder BLACK_SWAN gaf de
+  cockpit de impressie dat -20% het slechtste is wat kan gebeuren.
+  **Gefixt** — gebruiker ziet nu -50% scenario en -70%-single-name.
+- **Defensieve sectoren als veilige-haven**. STAGFLATION laat staples
+  -4% verliezen; in 2008 was dat -25%. BLACK_SWAN corrigeert deze
+  onderschatting met realistische correlatie-spike.
+- **Confidence-getallen suggereren precisie.** "Confidence 80%" voor
+  een composite gebaseerd op 4 ruwe metrics is opzichzelf misleidend
+  — al gemitigeerd door de eerdere min-coverage-floor (Asness/Simons).
+- **Risk-tolerance 'AGGRESSIVE' verlaagt geen drempels** — eerder
+  policy-engine-fix verhoogde caps voor risk-seekers; brede check
+  staat nog open.
+
+### Waar de app schijnzekerheid geeft
+
+- **Eén-cijfer-impacts zonder error-bar.** "Stagflatie -18%" is een
+  puntschatting; werkelijke uitkomst kan ±10pp afwijken op exact
+  hetzelfde scenario. *P2 — error-band toevoegen.*
+- **`defensiveStrength` 0-100 zonder confidence-interval.** Suggereert
+  precisie die er niet is. *P3.*
+- **Backtest Sharpe zonder Bailey-deflation.** P-hacking-bias bij
+  multiple-testing; al gedocumenteerd in vorige audit (Asness). *P3.*
+- **`riskScore` is een puntwaarde**. Geen "P5/P50/P95"-band. *P3.*
+
+### Disclaimers / microcopy — al toegevoegd
+
+- BLACK_SWAN-card: "Tail-event: bouw permanente buffers (cash 5-15%,
+  defensieve allocatie, hedges). Verwacht niet dat 'defensief' alleen
+  je redt — correlaties spiken in echte stress."
+- TOP_POSITION_BLOWUP-card: "Verlaag idiosyncratisch risico: zorg dat
+  geen positie meer dan 10% van je portefeuille weegt."
+- ScenarioImpactCard footer: "Indicatief. Schatting op basis van
+  sector-shocks; geen exacte voorspelling." (al aanwezig)
+- AiExplainPanel disclaimer: "AI legt alleen uit wat de engines hebben
+  berekend — geen nieuwe scores, geen koop-/verkoopadvies." (al aanwezig)
+
+### Disclaimers / microcopy — aanbevolen voor toekomstige iteratie
+
+- **Risico-card footer**: "Risk-score reflecteert *huidige* metingen,
+  niet *toekomstig* gedrag in stress-events." *P3.*
+- **Decision Cockpit globale disclaimer**: een banner onderaan met
+  "Indicatief, geen beleggingsadvies. Eindverantwoordelijkheid ligt
+  bij de gebruiker." *P2 — compliance.*
+- **Tail-scenario badge**: BLACK_SWAN/TOP_POSITION_BLOWUP-cards
+  krijgen een rode "Tail-risk"-pill in de header. *P2.*
+
+### Confidence & uncertainty — verbeteringen
+
+| Module | Vóór | Na | Open |
+|---|---|---|---|
+| `factors/composite.ts` | OK (vorige audit) | min-coverage-floor wired | — |
+| `regime/scoring.ts` | Confidence schaalt met active-weight | — | Geen wijziging |
+| `macro/scenarios.ts` | 5 scenarios (incl. STAGFLATION) | **+ BLACK_SWAN + TOP_POSITION_BLOWUP** | error-bands P2 |
+| `dashboard/scenario-snapshot.ts` | preparation per scenario | tail-aware preparation toegevoegd | tail-pill UI P2 |
+| `risk-engine/` | `riskScore` puntwaarde | — | confidence-band P2 |
+| `actions/` | confidence overgenomen uit engines | — | model-disagreement-flag P2 |
+
+### Verbeteringen — geïmplementeerd in deze diff
+
+#### `src/lib/analytics/macro/types.ts`
+- `MacroScenarioId` uitgebreid met `"BLACK_SWAN"` en `"TOP_POSITION_BLOWUP"`.
+
+#### `src/lib/analytics/macro/scenarios.ts`
+- **`BLACK_SWAN_SHOCKS`** sector-shock-tabel: tech/growth -55/-60%,
+  staples -40%, utilities -38%, healthcare -42%. Bewust kleinere
+  defensieve buffer dan in normale crash om correlatie-spike te
+  modelleren.
+- **`runScenarioFn`** runner-variant voor scenarios die een custom
+  `computeImpact`-functie nodig hebben (geen uniforme sector-shock).
+- **`computeTopPositionBlowup`** pure functie: identificeert grootste
+  positie + past -70%-shock toe; alle andere posities krijgen 0.
+- **2 nieuwe scenario's** toegevoegd aan `runMacroScenarios`-batch
+  (totaal nu 7).
+
+#### `src/lib/analytics/dashboard/scenario-snapshot.ts`
+- **`derivePreparation`** krijgt tail-risk-pad bovenaan:
+  - `BLACK_SWAN`: "Tail-event: bouw permanente buffers (cash 5-15%,
+    defensieve allocatie, hedges)..."
+  - `TOP_POSITION_BLOWUP`: "Verlaag idiosyncratisch risico: zorg dat
+    geen positie meer dan 10%..."
+
+#### Tests — `src/lib/analytics/macro/tail-risk.test.ts` (NEW)
+- **10 nieuwe tests:**
+  - BLACK_SWAN draait als 6e scenario in batch.
+  - Brede portefeuille verliest > 40% in black-swan.
+  - Defensieve portefeuille verliest minimaal 35% (geen schijnveiligheid).
+  - Tech vs defensief: relatieve buffer blijft (defensief beter dan tech).
+  - BLACK_SWAN-description verwijst naar Taleb / correlation-spike.
+  - TOP_POSITION_BLOWUP draait als 7e scenario.
+  - 60%-zware-positie portefeuille → ~42% verlies (60% × -70%).
+  - Alleen grootste positie krijgt -70%; rest blijft 0.
+  - Goed-gediversificeerd (12 × 8.3%) → ~6% verlies.
+  - Description verwijst naar Enron/Wirecard.
+
+#### Tests — `src/lib/analytics/macro/scenarios.test.ts`
+- Update: batch verwacht nu 7 scenario-IDs.
+
+### Verbeteringen — aanbevolen voor toekomstige iteratie
+
+| Prio | Module | Verbetering |
+|---|---|---|
+| **P1** | `dashboard/scenario-snapshot.ts` | Voeg `tailRiskTier` (`mild` / `severe` / `tail`) toe aan kaart-payload; UI toont rode pill voor BLACK_SWAN/TOP_POSITION_BLOWUP. |
+| **P1** | `dashboard/page.tsx` | Globale compliance-banner onderaan: "Indicatief, geen beleggingsadvies. Eindverantwoordelijkheid bij gebruiker." |
+| **P1** | `macro/scenarios.ts` | `USD_DOWN_20` mirror-scenario. |
+| **P2** | `macro/scenarios.ts` | `RATES_UP_5` voor 1994/2022 bond-rout. |
+| **P2** | `macro/scenarios.ts` | Error-bands per scenario (±range op portfolioImpact). |
+| **P2** | `risk-engine/` | Cycle-aware risk-tilt: hoge waardering + lage vol → "complacency" warning. |
+| **P2** | `actions/decision-engine.ts` | Model-disagreement-flag: SELL alleen wanneer ≥ 2 engines het eens zijn. |
+| **P3** | `dashboard/risk-action-panel.tsx` | "Risk-score reflecteert huidige metingen, niet stress-event-gedrag." |
+| **P3** | `business/business-score.ts` | Confidence-band rond compounder-classificatie. |
+
+### Scorecard (1-5; 5 = beste)
+
+| Engine | Vóór audit | Na audit | Toelichting |
+|---|---|---|---|
+| **Risk Engine** | 3 | 3 | Geen wijziging — cycle-aware en confidence-band zijn P2. |
+| **Scenario Engine** | 3 | **4** | BLACK_SWAN + TOP_POSITION_BLOWUP toegevoegd; tail-risk staat zichtbaar bovenaan in dashboard. |
+| **Action Engine** | 4 | 4 | Geen wijziging in deze diff — model-disagreement-flag P2. |
+| **Decision Cockpit** | 4 | 4 | Tail-cards komen automatisch in beeld via sortering. |
+| **AI Explain Layer** | 4 | 4 | Geen wijziging — disclaimer al aanwezig. |
+| **Rebalance Engine** | 4 | 4 | Geen wijziging — werkt goed. |
+| **Tax / Net Return** | 4 | 4 | Geen wijziging. |
+| **Overall reality-check** | 3 | **3.7** | Twee critical tail-scenario's gefixt; UI-polish + cycle-awareness staan op roadmap. |
+
+### Validatie
+- `npm test` → **1117/1117 tests groen** (+10 tail-risk).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+### Aannames
+- **BLACK_SWAN -50% brede markt** consistent met 2008 (-57% S&P)
+  en gemiddelde van 1929/1973-74. Defensief-buffer ~10pp gebaseerd
+  op 2020Q1-correlation-spike.
+- **TOP_POSITION_BLOWUP -70%** geïnspireerd op Enron (-99% in 6m),
+  Wirecard (-99% in 1 dag), Lehman (-100%); -70% is een conservatieve
+  schatting zodat de scenario óók nuttig is bij minder catastrofale
+  events.
+- **`computeTopPositionBlowup`** identificeert grootste positie *op
+  marketValueBase*. Bij gelijke waardes wint de eerste in de array
+  (deterministisch).
+- **Geen UI-changes in deze diff.** De tail-scenario's verschijnen
+  automatisch in `<ScenarioSnapshot>` omdat sortering "meest negatief
+  eerst" + `maxCards = 4` betekent dat BLACK_SWAN/TOP_POSITION_BLOWUP
+  altijd in de top-4 staan voor concentrated-portfolios. Tail-pill
+  badges zijn P1.
+
 ## [Unreleased] - 2026-04-27 · Quant, AI & Algoritme-validatie (Asness / Simons / Ng)
 
 ### Persona-samenvatting

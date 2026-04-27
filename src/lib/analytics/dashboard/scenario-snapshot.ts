@@ -273,6 +273,15 @@ interface PreparationContext {
 }
 
 function derivePreparation(ctx: PreparationContext): string {
+  // 0. Tail-risk-pad — Taleb/Marks-laag: deze scenario's zijn zeldzaam
+  // maar niet onmogelijk; voorbereiding is structureel en blijvend.
+  if (ctx.scenarioId === "BLACK_SWAN") {
+    return "Tail-event: bouw permanente buffers (cash 5-15%, defensieve allocatie, hedges). Verwacht niet dat 'defensief' alleen je redt — correlaties spiken in echte stress.";
+  }
+  if (ctx.scenarioId === "TOP_POSITION_BLOWUP") {
+    return "Verlaag idiosyncratisch risico: zorg dat geen positie meer dan 10% van je portefeuille weegt. Deze scenario raakt je het hardst bij concentratie.";
+  }
+
   // 1. USD-scenario + hoge FX-exposure → expliciete hedge-suggestie.
   if (
     ctx.scenarioId === "USD_UP_10" &&
