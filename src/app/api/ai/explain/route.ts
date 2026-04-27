@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { explain } from "@/lib/ai/explainers";
+import {
+  buildActionDecisionPrompt,
+  explainActionDecision,
+} from "@/lib/ai/explain";
 import { buildExplainPrompt } from "@/lib/ai/prompts";
 import {
   expectObject,
@@ -42,12 +46,13 @@ import type { ExplainContext, ExplainUseCase } from "@/types/ai";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID_USE_CASES: ReadonlySet<ExplainUseCase> = new Set([
+const VALID_USE_CASES: ReadonlySet<ExplainUseCase | "action_decision"> = new Set([
   "holding_score",
   "fragile_concentration",
   "buy_plan",
   "market_regime",
   "portfolio_risks",
+  "action_decision",
 ]);
 
 export async function POST(request: NextRequest) {
@@ -62,9 +67,28 @@ export async function POST(request: NextRequest) {
     const validationError = validateContext(body.value.context);
     if (validationError) return jsonError(validationError, 400);
 
-    const context = body.value.context as ExplainContext;
+    const rawCtx = body.value.context as Record<string, unknown>;
+    const useCase = rawCtx.useCase as ExplainUseCase | "action_decision";
     const includePrompt = body.value.includePrompt === true;
 
+    // Action-decision pad: aparte module met eigen renderer + prompt.
+    if (useCase === "action_decision") {
+      const input = {
+        action: rawCtx.action as Parameters<typeof explainActionDecision>[0]["action"],
+        factorScore: (rawCtx.factorScore ?? null) as Parameters<typeof explainActionDecision>[0]["factorScore"],
+        positionRisk: (rawCtx.positionRisk ?? null) as Parameters<typeof explainActionDecision>[0]["positionRisk"],
+      };
+      const response = explainActionDecision(input);
+      if (includePrompt) {
+        return NextResponse.json({
+          response,
+          prompt: buildActionDecisionPrompt(input),
+        });
+      }
+      return NextResponse.json(response);
+    }
+
+    const context = body.value.context as ExplainContext;
     const response = explain(context);
     if (includePrompt) {
       return NextResponse.json({
@@ -94,10 +118,25 @@ function validateContext(context: unknown): string | null {
   if (typeof useCase !== "string") {
     return "Field `context.useCase` ontbreekt of is geen string.";
   }
-  if (!VALID_USE_CASES.has(useCase as ExplainUseCase)) {
+  if (!VALID_USE_CASES.has(useCase as ExplainUseCase | "action_decision")) {
     return `Onbekende useCase: ${useCase}.`;
   }
   const ctx = context as Record<string, unknown>;
+
+  if (useCase === "action_decision") {
+    const action = ctx.action as Record<string, unknown> | undefined;
+    if (!action || typeof action !== "object") {
+      return "action_decision vereist `action` (PositionAction).";
+    }
+    if (
+      typeof action.symbol !== "string" ||
+      typeof action.action !== "string" ||
+      typeof action.urgency !== "string"
+    ) {
+      return "action_decision: `action.symbol`, `action.action` en `action.urgency` zijn verplicht.";
+    }
+    return null;
+  }
 
   switch (useCase as ExplainUseCase) {
     case "holding_score":

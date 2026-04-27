@@ -2,6 +2,309 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-25 · Tax Engine: cash + debt + TWR + fiscaal partner
+
+### Added
+- [`src/lib/analytics/tax/twr.ts`](src/lib/analytics/tax/twr.ts) — `computeTwrYear` Time-Weighted-Return over trailing 12-maand venster uit `PortfolioSnapshotRow[]`. Filtert cashflows uit (`totalCost`-delta per periode); compoundend over alle holding-period returns. `null` bij <2 snapshots in venster — caller valt terug op proxy.
+- [`src/lib/analytics/tax/twr.test.ts`](src/lib/analytics/tax/twr.test.ts) — **6 nieuwe tests**: null-paden, simpele +10%, contributies-filtering (10k bijgestort op 100k → 0% return), compound over 4 kwartalen, determinisme, buiten-venster filter.
+- 5 nieuwe **box3-tests** voor cash + debt + partner-drempel: spaargeld onder vrijstelling, gecombineerde grondslag (60k bel + 40k cash → ~640 EUR), schulden boven drempel verlagen belasting, schulden onder drempel tellen niet, partner heeft hogere drempel én vrijstelling.
+
+### Changed
+- [`src/lib/analytics/tax/box3.ts`](src/lib/analytics/tax/box3.ts) — `Box3Rates` uitgebreid met `notionalReturnCash` (1.44%), `notionalReturnDebt` (-2.62%), `debtThresholdSingle` (€3.800), `debtThresholdPartners` (€7.600). `computeBox3` ondersteunt nu drie categorieën:
+  - **Beleggingen** × 6.04% + **Spaargeld** × 1.44% + **Schulden boven drempel** × -2.62%
+  - Forfait wordt naar rato van belastbaar deel toegerekend (conform Belastingdienst-overgangsregeling)
+  - Rationale-bullets vermelden alle aanwezige categorieën expliciet
+- [`src/lib/analytics/tax/net-return.ts`](src/lib/analytics/tax/net-return.ts) — `ComputeNetReturnInput` heeft nieuwe optionele velden `cashWealth` en `debtWealth` (default 0); doorgegeven aan `computeBox3`.
+- [`src/lib/analytics/tax/index.ts`](src/lib/analytics/tax/index.ts) — `computeTwrYear` re-exported.
+- [`src/types/profile.ts`](src/types/profile.ts) — `UserProfile` uitgebreid met optionele `hasFiscalPartner`, `cashWealthEur`, `debtWealthEur` velden. Doc-strings linken expliciet naar de Tax Engine zodat downstream code weet waar deze velden vandaan komen.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - Bruto-return is nu **TWR over trailing 12 maanden** uit `snapshots`. Bij <2 snapshots fallback naar oude `unrealizedPnl/totalValue`-proxy.
+  - `hasFiscalPartner`, `cashWealth`, `debtWealth` worden uit `context.profile` doorgegeven (geen hardcoded false meer).
+  - Source-attribution (`TWR_12M` / `UNREALIZED_PROXY` / `ZERO`) doorgegeven naar de UI-card.
+- [`src/app/(app)/dashboard/components/net-return-card.tsx`](src/app/(app)/dashboard/components/net-return-card.tsx) — toont nu de bron van het bruto-return-cijfer onderin (TWR vs proxy vs zero) zodat de gebruiker ziet hoe het cijfer is opgebouwd.
+
+### Design-regels
+- **TWR is contributions-aware**. Cashflows worden gemeten als `totalCost`-delta tussen snapshots en afgetrokken voor de periode-return berekend wordt. Voorkomt dat bijstortingen als rendement worden geteld.
+- **Floor 1+r ≥ 0**. Bij wipe-out clampen we de holding-period factor; voorkomt negatieve product over compounding.
+- **Fallback-keten transparant**. UI toont expliciet waar bruto-return vandaan komt (TWR / proxy / zero).
+- **Drempelschuld komt vóór vrijstelling**. Conform Belastingdienst: eerst schulden boven drempel aftrekken van grondslag, dán de heffingsvrije voet.
+- **Forfait naar rato** wanneer er meerdere categorieën zijn. We berekenen het brutoforfait over de hele grondslag en schalen 'm naar het belastbare deel — anders zou een gebruiker met €100k cash + €1m beleggingen onevenredig veel of weinig belasting krijgen toegerekend.
+- **Profile-velden optioneel + safe defaults**. `hasFiscalPartner ?? false`, `cashWealth ?? 0`, `debtWealth ?? 0`. Bestaande gebruikers zonder deze velden in DB zien dezelfde uitkomsten als voorheen.
+
+### Aannames
+- **Categorisatie van vermogen blijft user-input**. We leiden cash/debt niet automatisch af; de gebruiker geeft 'm op via profile. Vraag voor verbetering: wil je een UI-flow op `/profiel` om deze in te vullen? (Voor nu blijven ze op 0 totdat de profile-pagina de inputs krijgt.)
+- **Custom WHT-overrides per ticker: NIET geïmplementeerd**. Defaults zijn al verdragstarieven en de extra UI-input zou complexiteit toevoegen zonder duidelijke meerwaarde voor het mainstream-geval. Wel makkelijk later toe te voegen via `domicileOverrides`-Map (al ondersteund door de engine).
+- **TWR-venster is 12 maanden** met `asOf = now`. Configureerbaar via `windowMonths` (bv. 36m voor een 3-jaar-blik).
+- **Drempelschuld eerst aftrekken van schulden**, dan rest meegeven aan box 3. Overeenkomstig Belastingdienst-werkwijze.
+
+### Validatie
+- `npm test` → **883/883 tests groen** (+11 vs vorige tax-batch: 6 TWR + 5 box3-cash/debt).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/dashboard` bundelt de uitgebreide NetReturnCard met source-label.
+
+## [Unreleased] - 2026-04-25 · Nederlandse Tax Engine
+
+### Added
+- [`src/lib/analytics/tax/types.ts`](src/lib/analytics/tax/types.ts) — types `TaxDomicile` (NL/DE/FR/GB/CH/US/IE/LU/OTHER), `Box3Bracket`, `Box3Calculation`, `DividendTaxBreakdown`, `DividendTaxPerHolding`, `NetReturnResult`, `TaxReport`. Alle ratio's als fracties.
+- [`src/lib/analytics/tax/box3.ts`](src/lib/analytics/tax/box3.ts) — `computeBox3` met `BOX3_RATES_2025`-tarieven (forfait beleggingen 6.04%, tarief 36%, vrijstelling €57.684 alleenstaand / €115.368 partners). Pure functie. Heeft `exemptionOverride` en `rates`-override voor toekomstige belastingjaren.
+- [`src/lib/analytics/tax/dividend-tax.ts`](src/lib/analytics/tax/dividend-tax.ts) — `computeDividendTax` per holding. WHT-tabel per domicilie via `WHT_RULES`: NL 15% credit, DE/FR/CH/US verdragstarief 15% credit, GB 0%, IE/LU UCITS impliciete lekkage ~10% (niet verrekenbaar). `detectDomicile` mapt ISIN-prefix (eerste 2 chars) of ticker-suffix (`.AS`/`.DE`/`.PA`/`.L`/`.SW`) naar `TaxDomicile`; bare-ticker fallback = US.
+- [`src/lib/analytics/tax/net-return.ts`](src/lib/analytics/tax/net-return.ts) — `computeNetReturn` orkestrator. Combineert box 3 + dividend-tax tot `{ grossReturn, taxImpact, netReturn, amounts, box3, dividend, warnings, confidence }`. Schat dividend-bedragen uit `marketValueByTicker × estimatedDividendYield` (default 2%). `buildTaxReport` wrapper voegt `taxYear`, `baseCurrency` en timestamp toe. Warnings:
+  - IE/LU UCITS → "interne WHT-lekkage, niet verrekenbaar".
+  - US-domicile ETF → "fiscaal minder efficiënt voor NL-belegger".
+  - Box 3 > bruto rendement → "netto rendement is negatief".
+  - Niet-verrekenbare WHT > 0 → expliciet bedrag in EUR.
+  - Crypto → "fiscale behandeling kan wijzigen".
+- [`src/lib/analytics/tax/index.ts`](src/lib/analytics/tax/index.ts) — barrel.
+- [`src/lib/analytics/tax/*.test.ts`](src/lib/analytics/tax) — **26 nieuwe tests**: box3 (8: vrijstelling, partner, schaal, edge), dividend-tax (10: ISIN-detectie, ticker-suffix, NL/US/IE/GB/0-paden, override, edge), net-return (8: tax < gross, exact box3-bedrag, amounts-consistency, IE-warning, crypto, determinisme, taxReport-wrap).
+- [`src/app/(app)/dashboard/components/net-return-card.tsx`](src/app/(app)/dashboard/components/net-return-card.tsx) — UI-card "Netto rendement". Drie tegels (bruto / belasting / netto) met %-en bedrag, drie detail-tegels (Box 3, NL dividendbelasting, buitenlandse WHT), warnings-lijst, en disclaimer "geen fiscaal advies".
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./tax"`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — server-side `buildTaxReport` op basis van `view.summary.unrealizedPnl / totalValue` als bruto-return-proxy. Nieuwe sectie "Netto rendement" rendert de card.
+
+### Design-regels
+- **Indicatief, geen fiscaal advies.** Disclaimer in UI én in module-doc. Tarieven gepind op publiek aangekondigde 2025-cijfers (belastingdienst.nl); jaarlijkse update via `BOX3_RATES`.
+- **Pure functions.** Geen I/O in engine; alle WHT-tarieven, vrijstellingen en domicilie-regels staan als constants. Identieke input → identieke output (test gepind).
+- **Verrekenbaarheid expliciet gemodelleerd.** NL-dividendbelasting + EU-WHT (verdrag) zijn 100% verrekenbaar; IE/LU UCITS-lekkage is 0% verrekenbaar. UI toont beide bedragen apart zodat de gebruiker ziet welk deel terugkomt via aangifte.
+- **`taxImpact` reflecteert alleen niet-verrekenbare lekkage + box 3.** Verrekenbare WHT verlaagt netto-rendement niet (komt terug via aangifte). Voorkomt dubbeltelling.
+- **Default dividend-yield 2%.** Configureerbaar via `estimatedDividendYield`. Conservatief en in lijn met huidige MSCI World ~1.7%.
+- **Tax-confidence (0..1)** stijgt met aanwezigheid van holdings, ISIN's, gross-return-input en explicit dividend-yield. UI kan dit later renderen.
+
+### Aannames
+- **Box 3 alleen beleggingen-categorie**. We modelleren geen spaargeld of schulden — portfolio-data heeft daar geen veld voor. Vraag voor verbetering: wil je een aparte input voor cash-spaarrekening en hypotheekschuld?
+- **Verdragstarieven post-formulier** (W-8BEN voor US, dividend-formulier voor CH). Realistisch voor NL-broker-flows; conservatief in andere gevallen.
+- **UCITS-lekkage 10%** is een simplificatie. Echte lekkage hangt af van onderliggend universum (US-aandelen WHT 15% × 100% allocatie = max 15%; IE-fonds claimt vaak ~5% terug). 10% is een redelijk gemiddelde voor MSCI-World achtige fondsen.
+- **Domicilie-detectie via ISIN-prefix + ticker-suffix**. Geen externe registry. Bare US-tickers (zonder dot) worden als US gemarkeerd — kan in randgevallen verkeerd zijn.
+- **Bruto-return uit `unrealizedPnl/totalValue`** als proxy. Alternatieven: TWR uit snapshots, periode-specifieke benchmark-return. Vraag: welke periode-definitie wil je standaard?
+- **Engine-keuze.** Opus 4.7 (1M context) — drie modules + types + UI moesten consistent samenwerken met holdings/classifier en met juiste 2025-tarieven. Voor latere updates per belastingjaar (alleen tarief-constants) volstaat Sonnet 4.6.
+
+### Verbeter-vragen
+1. **Spaargeld + schulden** als aparte inputs voor box 3? Nu alleen beleggingen.
+2. **Bruto-return periode**: huidige unrealized-PnL is sinds aankoop. Wil je TWR-jaar of YTD?
+3. **Custom WHT-tarieven** per ticker (sommige NL-brokers verrekenen anders)?
+4. **`fiscalPartner`-flag** uit user-profile in plaats van hardcoded `false`?
+
+### Validatie
+- `npm test` → **872/872 tests groen** (+26 tax: 8 box3, 10 dividend, 8 net-return).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; dashboard bundlet de nieuwe NetReturnCard.
+
+## [Unreleased] - 2026-04-25 · Macro & Scenario Engine
+
+### Added
+- [`src/lib/analytics/macro/types.ts`](src/lib/analytics/macro/types.ts) — types `MacroScenarioId` (4 scenario's: RATES_UP_2 / MARKET_CRASH / USD_UP_10 / RECESSION), `PositionImpact`, `MacroScenarioResult`, `MacroScenarioReport`. Alle returns als fracties; `defensiveStrength` als 0..100 score.
+- [`src/lib/analytics/macro/regime.ts`](src/lib/analytics/macro/regime.ts) — pure helpers. `classifySector` mapt sector-strings naar 13 buckets (tech / staples / financials / energy / healthcare / real-estate / utilities / etc. via regex-tabel); `isDefensiveSector` (staples + healthcare + utilities); `assetClassShockMultiplier` per scenario × asset-class (BOND krijgt 1.5× rates-multiplier, CASH = 0 alles, CRYPTO = 1.8× crash, etc.); `isForeignCurrency` voor FX-detectie.
+- [`src/lib/analytics/macro/scenarios.ts`](src/lib/analytics/macro/scenarios.ts) — `runMacroScenarios` orkestrator. Vier shock-tabellen per scenario (sector-bucket → fractie); per positie wordt `weight × shock` bijdrage berekend en gesommeerd tot `portfolioImpact`. Top-N losers + winners gesorteerd op contributie. `defensiveStrength` per scenario:
+  - **RATES_UP_2**: gemiddelde |shock| → score (lage duration = hoog).
+  - **MARKET_CRASH / RECESSION**: portfolio-impact vs verwachte floor → score.
+  - **USD_UP_10**: positief netto → hoog.
+  - Verdict-zin per scenario gegenereerd uit deterministische templates.
+- [`src/lib/analytics/macro/index.ts`](src/lib/analytics/macro/index.ts) — barrel.
+- [`src/lib/analytics/macro/*.test.ts`](src/lib/analytics/macro) — **24 nieuwe tests**: regime (12: sector-classificatie, defensieve check, asset-class-multipliers, FX), scenarios (12: 4 scenario-paden, biggestLosers sortering, topN, edge-cases, determinisme).
+- [`src/app/(app)/risico/components/macro-scenarios-card.tsx`](src/app/(app)/risico/components/macro-scenarios-card.tsx) — pure presentationele card. 2×2 grid van scenario-tegels: label + impact-badge (% en bedrag), defensieve sterkte, top-3 hardst geraakt + beste positie, NL-verdict, warnings. Disclaimer onderaan dat dit *geen* economisch model is.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./macro"`.
+- [`src/app/(app)/risico/page.tsx`](src/app/(app)/risico/page.tsx) — nieuwe sectie "Wat als…" boven de bestaande "Concrete afbouwadviezen". Pure rendering — engine-call gebeurt op page-niveau (server). Bestaande `ScenarioPanel` blijft staan; macro-card vult elkaar aan.
+
+### Design-regels
+- **Bewust simpel.** Geen DCF-, factor-VaR- of correlation-matrix model. Vaste sector- en asset-class shock-tabellen. Disclaimer in UI: "geen voorspelling, alleen gevoeligheid".
+- **Pure functions.** `runMacroScenarios` is volledig deterministisch; identieke input → identieke output (test gepind). `now` configureerbaar.
+- **Reproduceerbare drempels.** Alle shock-fracties staan als constants bovenin `scenarios.ts`. Tests pinnen de tech-crash-shock op -28%, REIT op -22% etc.
+- **Asset-class multipliers** bovenop sector-shocks: BOND minder gevoelig voor crash, REIT extra gevoelig voor rates, CRYPTO extra gevoelig voor crash. CASH altijd 0.
+- **`defensiveStrength` per scenario** in plaats van één globale score — verschillende scenario's vragen om verschillende dempers (bonds bij crash, korte duration bij rates, EUR-assets bij sterke USD).
+- **FX-effect alleen op niet-base-currency**. EUR-investeerder met EUR-aandelen voelt geen FX-effect; USD-aandelen krijgen `+10% × fx-multiplier`.
+- **Cyclische sectoren extra geraakt in recessie**, defensieve veel zachter (-5% utilities, -6% staples vs -28% industrials).
+
+### Aannames
+- **Vaste shock-tabellen, geen historische regressie.** Cijfers zijn pragmatisch gekozen op basis van publieke crisis-perioden (2008, 2020, 2022) — niet wetenschappelijk geijkt. Reproduceerbaar door constants. Vraag voor verbetering: wil je dat we deze in een aparte config-file zetten zodat ze per release tunbaar zijn zonder code-deploy?
+- **Geen second-order effecten.** We modelleren niet dat een crash + rate-cut elkaar deels compenseren. Elk scenario staat op zichzelf.
+- **USD-shock 10% default** (= +10% USD vs base). Configureerbaar via `usdAppreciation` per call. Voor sterkere/zwakkere stress-tests trivial aanpasbaar.
+- **Sector-classificatie via regex-tabel** in `regime.ts`. Houdt het simpel; er is geen externe sector-mapping-tabel of GICS-koppeling. 13 buckets is voldoende voor een EU/US-portefeuille.
+- **`defensiveStrength`-formule per scenario verschillend** omdat "defensief" anders betekent in elk scenario. RATES: lage duration. CRASH/RECESSION: lage neerwaartse impact. USD: positief netto.
+- **Engine-keuze**. Opus 4.7 (1M context) — vier scenario's met sector × asset-class shocks moesten consistent met elkaar én met `isCyclical` uit rebalance-engine zijn. Voor latere uitbreidingen (extra scenario's, custom shocks) volstaat Sonnet 4.6.
+
+### Verbeter-vragen
+1. **Wil je dat de shock-tabellen in een aparte JSON/config-file komen** zodat ze per release tunbaar zijn zonder TS-deploy?
+2. **Custom scenario builder** voor de gebruiker (slider voor rate-shock-magnitude, sector-tilt)?
+3. **Combinatie-scenarios** (bv. recessie + USD up tegelijk) voor stress-test van extreme tail events?
+
+### Validatie
+- `npm test` → **846/846 tests groen** (+24 macro: 12 regime, 12 scenarios).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/risico` bundlet de nieuwe MacroScenariosCard.
+
+## [Unreleased] - 2026-04-25 · Business Quality Layer
+
+### Added
+- [`src/lib/analytics/business/types.ts`](src/lib/analytics/business/types.ts) — types `BusinessLabel` (COMPOUNDER / CYCLICAL / SPECULATIVE), `BusinessSubScore`, `BusinessQualityResult`. Constants `BUSINESS_WEIGHTS` (moat 40% / earnings 35% / capital 25%), `BUSINESS_THRESHOLDS` (compounderMin 70, speculativeMax 40, longTerm per-score ≥ 60, min confidence 0.5).
+- [`src/lib/analytics/business/moat.ts`](src/lib/analytics/business/moat.ts) — `scoreMoat` (0..100). Drie pillars: gross margin (40%), ROIC (40%), operating margin (20%). Drempels expliciet als constants. Bevat shared helpers `scaleStrength`, `aggregate`, `Component` voor de andere submodules.
+- [`src/lib/analytics/business/earnings-quality.ts`](src/lib/analytics/business/earnings-quality.ts) — `scoreEarningsQuality`. Pillars: revenue 5y growth, EPS 5y growth, revenue TTM growth, net margin (allemaal afzonderlijk geschaald). Detecteert disconnect tussen 5y- en TTM-groei en voegt expliciete waarschuwing toe in rationale.
+- [`src/lib/analytics/business/capital-efficiency.ts`](src/lib/analytics/business/capital-efficiency.ts) — `scoreCapitalEfficiency`. Pillars: ROIC, ROE, debt/equity (inverse: lager = beter), interest coverage. Inverse-scaling helper voor debt/equity.
+- [`src/lib/analytics/business/business-score.ts`](src/lib/analytics/business/business-score.ts) — `computeBusinessQuality` orchestrator. Aggregeert deelscores tot composite, leidt label af (COMPOUNDER vereist composite ≥ 70 én niet-cyclische sector — gebruikt `isCyclical` uit rebalance-engine), berekent `canHoldLongTerm` (label = COMPOUNDER + alle deelscores ≥ 60 + confidence ≥ 0.5). `computeBusinessQualityBatch` retourneert ranked + lookup-map.
+- [`src/lib/analytics/business/index.ts`](src/lib/analytics/business/index.ts) — barrel.
+- [`src/lib/analytics/business/*.test.ts`](src/lib/analytics/business) — **21 nieuwe tests**: moat (5: hoog/laag/partial/rationale), earnings-quality (4: groei + krimp + disconnect-warning), capital-efficiency (5: ROIC + debt-inverse + interest coverage), business-score (7: compounder/cyclical/speculative paths, neutral fallback, low-confidence, determinisme, batch-sortering).
+- [`src/app/(app)/dashboard/load-business-quality.ts`](src/app/(app)/dashboard/load-business-quality.ts) — server-only loader. Parallel fetch van fundamentals (cache dedupliceert) → batch-engine → `{ byTicker, ranked }`. Faal-safe per ticker.
+- [`src/app/(app)/dashboard/components/business-quality-cards.tsx`](src/app/(app)/dashboard/components/business-quality-cards.tsx) — "Sterkste bedrijven" + "Zwakste bedrijven" naast elkaar. Toont per rij: ticker, composite score, label-badge (COMPOUNDER/CYCLICAL/SPECULATIVE), 10y-hold sparkles-badge wanneer indicator true, confidence %, en pills met de drie deelscores. Pure presentatie.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./business"`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — parallel-load van `loadBusinessQualityBatch` toegevoegd; nieuwe sectie "Business quality" rendert zodra de batch resultaten heeft.
+
+### Design-regels
+- **Geen AI, alleen heuristics.** Drempels zijn expliciete constants in elke submodule; identieke fundamentals → identiek resultaat.
+- **Pure functies overal.** `computeBusinessQuality` heeft geen I/O; loader is een aparte file zodat tests de engine zonder Prisma/cache kunnen draaien.
+- **Coverage proportioneel.** Wanneer een veld ontbreekt valt 'ie uit de gewogen aggregatie; coverage = som-van-aanwezige-gewichten. Composite-score komt zo eerlijk uit ook bij gedeeltelijke data.
+- **Label-downgrade bij cyclische sector.** Een bedrijf in Energy/Materials/Industrials etc. krijgt nooit COMPOUNDER — zelfs bij hoge composite. Voorkomt false-positives door piek-marges.
+- **10-year hold conservatief.** Alleen COMPOUNDER + alle 3 deelscores ≥ 60 + confidence ≥ 0.5. Drempels staan in `BUSINESS_THRESHOLDS`.
+- **Inverse-scaling voor leverage.** Debt/equity gebruikt `inverse` (lager = hogere score) — andere capital-efficiency pillars zijn directe scaling. Reflecteert de werkelijkheid dat leverage een risk-multiplier is.
+- **Disconnect-detectie in earnings.** Wanneer 5y growth > 5% maar TTM < -2%, voegt de engine een expliciete rationale-bullet toe ("Disconnect: kantelpunt"). Score blijft op de gewogen aggregatie — we voegen geen ad-hoc penalty toe om reproduceerbaarheid te bewaren.
+
+### Aannames
+- **Heuristieke drempels, geen academische standaarden.** Gross margin ≥ 50% = top, ROIC ≥ 20% = top, etc. Conservatief en in lijn met long-term-quality literatuur (Buffett/Munger heuristieken). Aanpasbaar per release zonder API-breuk.
+- **Geen tijdreeks-data nodig.** We gebruiken `revenueGrowth5y` (CAGR) en `netMargin` (point-in-time) i.p.v. een vol-curve. Reden: `FundamentalsSnapshot` levert alleen point-in-time. Volledige earnings-stabiliteit (σ over kwartalen) zou een aparte data-feed vereisen — vraag voor verbetering.
+- **Sector-cyclicity via bestaande `isCyclical`-helper** uit rebalance-engine. Eén canonieke bron voor cyclische sector-classificatie.
+- **Composite-gewichten 40/35/25** voor moat/earnings/capital. Moat krijgt grootste gewicht omdat duurzaam concurrentievoordeel het meest betekenisvol is voor lange-termijn houden.
+- **`canHoldLongTerm` is binair**, niet per-ticker. Voor een meer gedifferentieerde "10y-conviction-score" kunnen we later een numerieke variant toevoegen.
+- **Engine-keuze.** Opus 4.7 (1M context) — vier modules + types + UI moest in één keer consistent worden, en de heuristieke drempels moesten gekozen worden in afstemming met bestaande `factor`-engine (anders krijgt de gebruiker tegenstrijdige signalen). Voor latere uitbreidingen (extra pillars, regime-aware drempels) volstaat Sonnet 4.6.
+
+### Verbeter-vragen
+1. **Moeten earnings-stabiliteit op een echte vol-σ over historische kwartalen?** Vereist een aparte data-feed (huidige `FundamentalsSnapshot` is point-in-time). Wel nuttig voor "hoe glad zijn de winsten?" claim.
+2. **Holdings-table kolom**: het verzoek vraagt een kolom op `/portfolio`. Ik heb 'm nog **niet** toegevoegd omdat de holdings-table al 12 kolommen heeft en breaking de mobile-view; suggestie is een tooltip op een nieuwe kolom of een uitklap-detail. Wil je dat ik 'm gewoon toevoeg, of als opklap?
+3. **Custom drempels per profiel?** Bv. risk-averse profile = strengere COMPOUNDER-drempel (composite ≥ 80). Nu hardcoded.
+
+### Validatie
+- `npm test` → **822/822 tests groen** (+21 business: 5 moat, 4 earnings, 5 capital, 7 score).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; dashboard bundlet de nieuwe BusinessQualityCards.
+
+## [Unreleased] - 2026-04-25 · Opportunity Radar adapter (5-signaal publieke API)
+
+### Added
+- [`src/lib/analytics/opportunity/types.ts`](src/lib/analytics/opportunity/types.ts) — types voor de adapter: `OpportunityType` (5 publieke types: QUALITY_PULLBACK / VALUE_MISPRICING / MOMENTUM_REVERSAL / UNDERWEIGHT_HIGH_CONVICTION / ETF_REBALANCE_OPPORTUNITY), `OpportunityRiskLevel`, `OpportunityResult`. Constants `OPPORTUNITY_HORIZON` (vaste NL-horizon-strings per type), `CONFIDENCE_TIER_TO_NUMBER` (HIGH=0.85, MEDIUM=0.6, LOW=0.35), `OPPORTUNITY_TYPE_LABELS`.
+- [`src/lib/analytics/opportunity/signals.ts`](src/lib/analytics/opportunity/signals.ts) — pure mapping. `mapSignalType` vertaalt 5 van de 8 radar-signaaltypes naar `OpportunityType`; `filterPublicSignals` filtert; `pickPrimarySignal` kiest het sterkste publiek signaal (deterministische tie-break op alfabet).
+- [`src/lib/analytics/opportunity/scoring.ts`](src/lib/analytics/opportunity/scoring.ts) — pure helpers. `deriveConfidence` neemt het max numerieke confidence-tier over publieke signalen; `deriveRiskLevel` leidt LOW/MEDIUM/HIGH af uit type + confidence (MOMENTUM_REVERSAL minimaal MEDIUM); `buildRationale` pakt eerste rationale-bullet als compacte NL-zin.
+- [`src/lib/analytics/opportunity/engine.ts`](src/lib/analytics/opportunity/engine.ts) — `scanOpportunityRadar` adapter. Roept de bestaande `scanOpportunities` aan, filtert kandidaten op publiek signaal, mapt naar `OpportunityResult`, sorteert aflopend op score (tie-break confidence + symbol), respecteert `limit` en optionele `includeTypes`. Levert `{ generatedAt, results, countByType, underlying }`.
+- [`src/lib/analytics/opportunity/index.ts`](src/lib/analytics/opportunity/index.ts) — barrel.
+- [`src/lib/analytics/opportunity/*.test.ts`](src/lib/analytics/opportunity) — **28 nieuwe tests**: signals (8: mapping + filter + tie-break + null-paden), scoring (11: confidence-tier-conversie, risk-level per pad, rationale-fallback), engine (9: shape-transformatie, watchlist filter-out, sortering, limit, includeTypes, determinisme, horizon-consistency).
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — selectief re-export van de nieuwe `opportunity`-module om collisions met `opportunity-radar` (die `OpportunitySignalType` etc. al exporteert) te voorkomen.
+
+### Behouden
+- **`/kansen`-pagina + dashboard widget "Top kansen"** bestaan al sinds een eerdere ronde en blijven ongewijzigd; ze gebruiken de bestaande `opportunity-radar` engine met 8 signalen (incl. defensive-bargain en watchlist-target). De nieuwe adapter is een *aanvullende* publieke API met 5 signalen — geen dubbele UI of code-paden.
+
+### Design-regels
+- **Adapter-laag, geen tweede engine.** Alle businesslogica blijft in `opportunity-radar`. De nieuwe module doet uitsluitend filter + shape-transformatie. Geen tweede beslislaag, geen drift-risico.
+- **Pure functies.** Adapter heeft geen I/O; identieke input → identieke output (test gepind).
+- **Reproduceerbaar `expectedHorizon`.** Hardcoded NL-strings per type (`OPPORTUNITY_HORIZON`) — geen AI, geen marktdata-afhankelijkheid.
+- **`riskLevel` = type + confidence**, deterministische functie. Momentum-reversal is structureel fragiel → minimaal MEDIUM, ongeacht confidence.
+- **Source-attribution behouden.** `OpportunityResult.source` (`portfolio` / `screener` / `watchlist`) komt 1:1 uit de onderliggende kandidaat.
+- **Geen trading bot, geen leverage.** Adapter exposeert alleen observaties — geen order-velden, geen execution.
+
+### Aannames
+- **5-signaal selectie.** Alleen quality-pullback, value-dislocation, momentum-reversal, underweight-high-conviction, etf-core-rebalance worden gepubliceerd. `defensive-bargain`, `watchlist-target` en `earnings-sentiment-placeholder` blijven beschikbaar via de bestaande radar voor `/kansen`-UI maar tellen niet mee in `OpportunityResult`. Vraag bij twijfel: wil je dat de nieuwe `/kansen` UI uitsluitend de 5 publieke types toont (= breuk met huidige UI) of behouden we de bredere coverage?
+- **`expectedHorizon` als string-range.** Spec voorbeeld toont "6-24 maanden"; ik kies per type een eigen range gebaseerd op de typische mean-reversion-snelheid (zie comments in `types.ts`). Aanpasbaar per release.
+- **`confidence` = max tier-getal** over publieke signalen. Optimistische maat — als één HIGH-tier signaal triggert is de hele kandidaat HIGH. Alternatief (gemiddelde) zou in zeldzame multi-signaal cases lager uitkomen; we kiezen voor max omdat de gebruiker primair geïnformeerd wil zijn over het sterkste element.
+- **`rationale` = eerste bullet uit primair signaal.** Voor compactere weergave dan de volledige bullet-lijst van de radar.
+- **`MOMENTUM_REVERSAL` minimaal MEDIUM risk.** Trend-keerpunten zijn statistisch fragiel; we kunnen niet via confidence alleen een LOW-risk-claim ondersteunen.
+- **Engine-keuze.** Opus 4.7 (1M context) — adapter-design, types, mapping en tests moesten consistent blijven met de bestaande `opportunity-radar` shape én met de spec. Voor latere uitbreidingen (bv. extra publieke types) zou Sonnet 4.6 volstaan.
+
+### Verbeter-vragen aan jou
+- Wil je dat de huidige `/kansen` pagina ook gefilterd wordt op de 5 publieke signaaltypes? Of behouden we de 8-signaal coverage (incl. defensive-bargain + watchlist-target) op de bestaande UI en bouwen we de adapter alleen voor toekomstige call-sites (bv. een API-route, of een mobile-versie)?
+- De `expectedHorizon`-strings zijn nu statisch per type. Wil je dat ze in de toekomst regime-afhankelijk worden (bv. langere horizon in DEFENSIVE regime)?
+- Moet er een `/api/analytics/opportunity` route komen analoog aan `/api/analytics/mispricing`, met dezelfde auth + cache-headers? Dat past bij het patroon en is ~1 bestand werk — laat het me weten.
+
+### Validatie
+- `npm test` → **801/801 tests groen** (+28 opportunity adapter: 8 signals, 11 scoring, 9 engine).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; geen UI-wijzigingen, dus geen route-impact.
+
+## [Unreleased] - 2026-04-25 · Action & Rebalance Engine
+
+### Added
+- [`src/lib/analytics/actions/types.ts`](src/lib/analytics/actions/types.ts) — types `ActionDecision` (BUY/HOLD/TRIM/SELL/DO_NOTHING), `ActionUrgency` (LOW/MEDIUM/HIGH), `PositionAction`, `GlobalActionAdvice` (BUY_MORE/HOLD/DE_RISK/INSUFFICIENT_DATA), `ActionPlan`, `ActionPositionInput`, `DecisionEngineInput`.
+- [`src/lib/analytics/actions/action-classifier.ts`](src/lib/analytics/actions/action-classifier.ts) — pure beslisregels per positie. Volgorde (eerste match wint): SELL → TRIM → BUY → HOLD → DO_NOTHING. Drempels in `DECISION_THRESHOLDS` constant zodat ze pinbaar zijn in tests. Triggers per pad:
+  - **SELL**: composite ≤ 25, OF gewicht > cap × 1.2, OF risk-class high/critical, OF rebalance-engine RECONSIDER.
+  - **TRIM**: gewicht > cap, OF zwakke factor + boven target × 1.05, OF risk-class elevated, OF rebalance-engine TRIM_LIGHT/HEAVY.
+  - **BUY**: composite ≥ 70 + confidence ≥ 0.4 + ruimte onder cap + cash > 0; defensief regime cap't BUY achter composite ≥ 80.
+  - **HOLD vs DO_NOTHING**: HOLD bij score in midden; DO_NOTHING wanneer factor ontbreekt + lage confidence.
+- [`src/lib/analytics/actions/rebalance-quantity.ts`](src/lib/analytics/actions/rebalance-quantity.ts) — pure quantity-resolver. Voor TRIM/SELL hergebruikt 'ie de bestaande `RebalanceQuantityPlan` (zelfde getallen als /risico). Voor BUY: `desiredAmount = min(monthlyContribution × 1.5, cash × 0.5, target_gap × totalValue)`, `sharesToBuy = floor(desiredAmount / unitPrice)` (of `round(4)` bij fractional). Faal-safe: `insufficientData = true` wanneer koers/cash ontbreekt.
+- [`src/lib/analytics/actions/decision-engine.ts`](src/lib/analytics/actions/decision-engine.ts) — orchestrator `runDecisionEngine`. Roept classifier + quantity-resolver per positie aan; sorteert op urgency desc → action-priority → ticker; bouwt globaal advies + warnings. Global rules:
+  - **DE_RISK**: bij `risk.overallSeverity ∈ {high, critical}` of `(SELL+TRIM)/n ≥ 40%`.
+  - **BUY_MORE**: ≥ 1 BUY-kandidaat + cash ≥ 5% portefeuille + niet defensief regime.
+  - **HOLD**: default.
+  - **INSUFFICIENT_DATA**: lege portefeuille.
+- [`src/lib/analytics/actions/index.ts`](src/lib/analytics/actions/index.ts) — barrel.
+- [`src/lib/analytics/actions/*.test.ts`](src/lib/analytics/actions) — **41 nieuwe tests**: action-classifier (18), rebalance-quantity (10), decision-engine (13). Inclusief deterministisme-test, alle SELL-paden, BUY met defensief regime cap, fallback-quantity zonder plan.
+- [`src/app/(app)/dashboard/components/action-engine-card.tsx`](src/app/(app)/dashboard/components/action-engine-card.tsx) — UI-card "Wat moet ik NU doen?". Toont global advice met urgency-tone, distribution-strip per actie-type, top-3 acties met aantallen, bedrag, rationale en risico-impact, plus warnings. Pure presentatie — geen rekenwerk.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — selective re-export van actions-module. `ACTION_THRESHOLDS` (in `holding-action.ts`) bestond al; daarom heet de constant in actions/-module **`DECISION_THRESHOLDS`**.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — nieuwe sectie "Wat moet ik NU doen?" boven het bestaande NextActionCard. De engine hergebruikt `view.rebalance.recommendations[*].quantityPlan` zodat afbouw-aantallen exact matchen met /risico — geen dubbele rekenpaden.
+
+### Design-regels
+- **GEEN AI.** Alle beslissingen lopen via rule-based functies; classifier + quantity-resolver zijn puur. Verdict-strings zijn templates over getelde inputs.
+- **Deterministic.** Identieke input → identieke output (test gepind). `now` configureerbaar voor reproduceerbare runs.
+- **Source-attribution per actie.** `sources[]` lijst de engines die hebben bijgedragen (factor / risk / rebalance / policy / market-regime). UI kan dit later tonen als audit-trail.
+- **Hergebruik bestaande engines.** Quantities voor TRIM/SELL komen 1:1 uit de rebalance-engine; we voegen alleen BUY-quantity toe. Geen duplicate truth.
+- **Eerste match wint.** Beslis-volgorde is expliciet (SELL → TRIM → BUY → HOLD → DO_NOTHING) zodat een ticker met meerdere triggers toch één duidelijke actie krijgt.
+- **Confidence reflecteert data-coverage.** `confidence` daalt automatisch bij `insufficientData` (geen koers, geen factor, etc.).
+- **Conservatief default-target = 1/n.** Wanneer geen policy-target is gegeven gebruiken we uniform target — past bij hoe opportunity-radar / hunting-list al werken.
+
+### Aannames
+- **Cap-default 10%.** Wanneer policy ontbreekt nemen we `defaultMaxPositionWeight = 0.1` (zelfde als `holding-action.ts`).
+- **BUY-bedrag = `min(1.5 × monthly, 50% × cash, target_gap)`**. Conservatief — voorkomt dat één BUY de cash leegtrekt en respecteert de natuurlijke maandelijkse cadence.
+- **Defensief regime onderdrukt zwakke BUY.** Bij `regime.stance === "DEFENSIVE"` triggert BUY pas vanaf composite ≥ 80.
+- **DECISION_THRESHOLDS i.p.v. ACTION_THRESHOLDS.** `holding-action.ts` exporteerde al `ACTION_THRESHOLDS`; om collision in de barrel te vermijden hernoemen we de actions/-versie.
+- **`existingPlan.targetWeight` is in percent (0..100).** De rebalance-engine slaat `targetWeight` op in percent, niet als fractie; we delen door 100 wanneer we 'm doorgeven aan de quantity-resolver.
+- **DO_NOTHING ≠ HOLD.** DO_NOTHING is "onvoldoende data", HOLD is "data ondersteunt aanhouden". Dashboard verbergt beide standaard.
+- **Engine-keuze.** Opus 4.7 (1M context) — drie modules + types + UI-card moesten consistent samen werken met `holding-action.ts`, `rebalance-engine` en `policy-engine`.
+
+### Validatie
+- `npm test` → **773/773 tests groen** (+41 actions: 18 classifier, 10 quantity, 13 engine).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; dashboard bundlet de nieuwe ActionEngineCard.
+
+## [Unreleased] - 2026-04-25 · Benchmark & Performance Attribution
+
+### Added
+- [`src/lib/analytics/benchmark/types.ts`](src/lib/analytics/benchmark/types.ts) — typedefs voor `BenchmarkPerformance`, `AttributionBreakdown`, `AttributionBucket`, `BenchmarkReport` + statische `BENCHMARK_CATALOG` met drie benchmarks (MSCI World / S&P 500 / VWCE) inclusief fallback-tickers per benchmark.
+- [`src/lib/analytics/benchmark/benchmark-fetcher.ts`](src/lib/analytics/benchmark/benchmark-fetcher.ts) — `fetchBenchmark(id)` met automatische fallback naar alternatieve tickers wanneer de primary geen data oplevert; `resampleMonthly` voor maandelijkse cadence-alignment.
+- [`src/lib/analytics/benchmark/performance.ts`](src/lib/analytics/benchmark/performance.ts) — `computeBenchmarkPerformance` berekent portfolio-return, benchmark-return, alpha, tracking-error, information ratio + genormaliseerde reeksen voor de chart. Trekt contributions/withdrawals **af** zodat extra inleg geen rendement is.
+- [`src/lib/analytics/benchmark/tracking-error.ts`](src/lib/analytics/benchmark/tracking-error.ts) — `excessReturns`, `annualizedTrackingError` (× √12), `informationRatio` met null-fallback bij ontbrekende variantie.
+- [`src/lib/analytics/benchmark/attribution.ts`](src/lib/analytics/benchmark/attribution.ts) — `computeAttribution` splitst alpha op in drie lenzen: sectoren (groepering op `holding.sector`), factoren (`quality-high/low`, `value-high/low`, `momentum-high/low` op tertile-drempels 65/35), en single-stock alpha (top-N op |contributie|).
+- [`src/lib/analytics/benchmark/engine.ts`](src/lib/analytics/benchmark/engine.ts) — `buildBenchmarkReport` orchestrator + deterministische NL-verdict (geen AI; templates over alpha + top/bottom sector).
+- [`src/lib/analytics/benchmark/index.ts`](src/lib/analytics/benchmark/index.ts) — barrel.
+- [`src/lib/analytics/benchmark/*.test.ts`](src/lib/analytics/benchmark) — **32 nieuwe tests**: tracking-error (9), performance (6), attribution (6), engine (5), benchmark-fetcher (6).
+- [`src/app/(app)/dashboard/load-benchmark.ts`](src/app/(app)/dashboard/load-benchmark.ts) — server-only loader. Pipeline: portfolio-snapshots → benchmark-history (fallback-aware) → resample → performance → per-positie history fetch → attribution → report. Faal-safe op alle externe calls.
+- [`src/app/(app)/dashboard/components/benchmark-card.tsx`](src/app/(app)/dashboard/components/benchmark-card.tsx) — pure presentationele kaart "Presteer ik beter dan de markt?" met inline SVG-chart (portfolio vs benchmark, beide genormaliseerd op 100), key-metrics-grid, attribution-strips (sectoren / factoren / top-stocks) en warning-list. Geen client deps voor de chart — pure SVG.
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./benchmark"`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — `loadBenchmarkReport` parallel met opportunity-data; nieuwe sectie "Benchmark & Attribution" rendert de kaart wanneer er een report is.
+
+### Design-regels
+- **Geen AI.** Alle berekeningen zijn pure functies; verdict-zin is een template over getelde inputs.
+- **Fallback bij missende data.** `fetchBenchmark` probeert primary + 3 fallback-tickers; bij volledige uitval levert 'ie een rapport met warnings + lege series ipv exception. Performance retourneert nullen + warning bij < 2 overlappende maanden. Attribution skipt posities zonder bruikbare history.
+- **Contributions ≠ rendement.** De portfolio-return-berekening trekt cumulatieve inleg-deltas af voordat 'ie de maandelijkse return bepaalt — voorkomt dat een DCA-bijstort als out-performance verschijnt.
+- **Attribution is optelbaar.** Sector-contributies sommeren tot ongeveer alpha (binnen afrondings-ruis); `residualAlpha` toont expliciet wat niet aan sectoren toegerekend kon worden.
+- **Tracking-error eerlijk geannualiseerd.** Stdev × √12, conform industry-standaard.
+- **Pure SVG-chart.** Geen recharts/chart.js dependency voor deze widget — minder bundle-bloat, server-rendered.
+
+### Aannames
+- **Drie benchmarks**: MSCI World (default, primary `IWDA.AS`), S&P 500 (primary `^GSPC`), VWCE (primary `VWCE.DE`). Fallback-lijsten zijn **regio-divers** (US-listed + EU-listed varianten) zodat de provider niet aan één markt vastzit.
+- **Maandelijkse cadence.** Portfolio-snapshots zijn typisch maandelijks; we resamplen benchmark-history op de laatste handelsdag per maand om gelijke cadences te garanderen.
+- **Cumulative contribution proxy = `totalCost`-delta.** We hebben geen aparte cashflow-tabel; we gebruiken stijging in `totalCost` sinds de eerste snapshot als proxy voor extra inleg. Bij verkopen met realisatie zou dit licht onderschatten — acceptabel voor portefeuille-vergelijking.
+- **Factor-thresholds 65/35.** Consistent met `deriveStrengthsWeaknesses` (screener) — een holding telt als "quality hoog" bij sub-score ≥ 65, "quality laag" bij ≤ 35. Mid-bucket (35–65) doet niet mee aan factor-attribution.
+- **Sector "Onbekend"-fallback.** Holdings zonder sector-veld worden niet weggelaten maar krijgen het sector-label "Onbekend" zodat ze in attribution blijven verschijnen.
+- **Engine-keuze.** Opus 4.7 (1M context) — vier engines + types + UI + tests + dashboard-integratie moesten consistent samen werken met bestaande `PortfolioView` en `getHistory`-cache. Voor latere uitbreidingen (extra benchmarks, custom benchmark via ETF-lookthrough) zou Sonnet 4.6 volstaan.
+
+### Validatie
+- `npm test` → **732/732 tests groen** (+32 benchmark: 9 tracking-error, 6 performance, 6 attribution, 5 engine, 6 fetcher).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/dashboard` bundlet de nieuwe `BenchmarkCard` + chart.
+
 ## [Unreleased] - 2026-04-25 · AI Research Dossiers
 
 ### Added

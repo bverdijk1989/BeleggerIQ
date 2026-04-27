@@ -55,8 +55,56 @@ export * from "./instruments";
 export * from "./policy-engine";
 export * from "./rebalance";
 export * from "./opportunity-radar";
+// Opportunity adapter: selectief om collisions met opportunity-radar
+// te vermijden (beide modules definiëren bv. `OpportunityType`-achtige
+// namen). De adapter exposeert de 5-signaal publieke shape.
+export {
+  scanOpportunityRadar,
+  filterPublicSignals,
+  mapSignalType,
+  pickPrimarySignal,
+  buildRationale,
+  deriveConfidence,
+  deriveRiskLevel,
+  SIGNAL_TYPE_MAP,
+  OPPORTUNITY_HORIZON,
+  OPPORTUNITY_TYPE_LABELS,
+  CONFIDENCE_TIER_TO_NUMBER,
+  type OpportunityType,
+  type OpportunityRiskLevel,
+  type OpportunityResult,
+  type OpportunityRadarReport,
+  type ScanOpportunityRadarInput,
+} from "./opportunity";
 export * from "./mispricing";
 export * from "./hunting-list";
+export * from "./benchmark";
+export * from "./business";
+export * from "./macro";
+export * from "./tax";
+// Actions: selectief re-export. `holding-action.ts` exporteert al een
+// constant `ACTION_THRESHOLDS` (andere semantiek), daarom heet die in
+// de actions-submodule `DECISION_THRESHOLDS`.
+export {
+  classifyAction,
+  resolveCap,
+  resolveActionQuantity,
+  runDecisionEngine,
+  DECISION_THRESHOLDS,
+  type ActionDecision,
+  type ActionUrgency,
+  type ActionSource,
+  type PositionAction,
+  type GlobalAdvice,
+  type GlobalActionAdvice,
+  type ActionPlan,
+  type ActionPositionInput,
+  type DecisionEngineInput,
+  type ClassifyActionInput,
+  type ClassifyActionResult,
+  type ResolveQuantityInput,
+  type ResolveQuantityResult,
+} from "./actions";
 // Backtest: selectief re-export om collision op `computeMaxDrawdown` met
 // risk-engine te vermijden. `computeMaxDrawdown(values: number[])` blijft
 // bereikbaar via `@/lib/analytics/backtest/metrics`.

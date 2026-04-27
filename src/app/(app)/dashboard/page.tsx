@@ -6,7 +6,10 @@ import { Section } from "@/components/common/section";
 import {
   buildAttentionItems,
   buildPortfolioView,
+  buildTaxReport,
+  computeTwrYear,
   generateAllocationPlan,
+  runDecisionEngine,
 } from "@/lib/analytics";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
@@ -26,8 +29,14 @@ import { MarketRegimeCard } from "./components/market-regime-card";
 import { NextActionCard } from "./components/next-action-card";
 import { TopRisksCard } from "./components/risks-and-opportunities";
 import { SnapshotButton } from "./components/snapshot-button";
+import { ActionEngineCard } from "./components/action-engine-card";
+import { BenchmarkCard } from "./components/benchmark-card";
+import { BusinessQualityCards } from "./components/business-quality-cards";
+import { NetReturnCard } from "./components/net-return-card";
 import { TopKansenCard } from "./components/top-kansen-card";
 import { TopStats } from "./components/top-stats";
+import { loadBenchmarkReport } from "./load-benchmark";
+import { loadBusinessQualityBatch } from "./load-business-quality";
 import { loadOpportunityData } from "../kansen/load-opportunity-data";
 
 export const metadata = {
@@ -92,16 +101,74 @@ export default async function DashboardPage() {
   const attention = buildAttentionItems(view.risk, view.rebalance);
   const updatedAt = new Date(view.lastUpdated).toLocaleString("nl-NL");
 
-  // Opportunity Radar: compact top-3 voor widget. Faal-safe bij
-  // provider-uitval zodat de rest van het dashboard intact blijft.
-  const opportunityReport = await loadOpportunityData({
-    portfolio,
-    view,
-    userEmail: auth.user.email,
-    config: { maxCandidates: 3, minSignalStrength: 40 },
-  })
-    .then((r) => r.report)
-    .catch(() => null);
+  // Tax-engine — indicatief netto rendement (box 3 + dividend-tax + WHT).
+  // Bruto rendement = TWR over trailing 12m uit snapshots; valt
+  // terug op unrealized-PnL-proxy bij <2 snapshots.
+  const twrYear = computeTwrYear({ snapshots });
+  const fallbackReturn =
+    view.summary.totalValue > 0 && view.summary.unrealizedPnl !== undefined
+      ? view.summary.unrealizedPnl / view.summary.totalValue
+      : 0;
+  const grossReturnFraction = twrYear ?? fallbackReturn;
+  const taxReport = buildTaxReport({
+    holdings: portfolio.holdings,
+    marketValueByTicker: new Map(
+      view.valuations.map((v) => [v.holding.ticker, v.marketValueBase]),
+    ),
+    portfolioValue: view.summary.totalValue,
+    grossReturnFraction,
+    hasFiscalPartner: context.profile?.hasFiscalPartner ?? false,
+    cashWealth: context.profile?.cashWealthEur ?? 0,
+    debtWealth: context.profile?.debtWealthEur ?? 0,
+  });
+
+  // Action & Rebalance Engine — pure rule-based decisions per positie.
+  // Hergebruikt rebalance-quantityPlans uit `view.rebalance` zodat de
+  // afbouw-aantallen exact matchen met /risico.
+  const quantityPlanByTicker = new Map(
+    view.rebalance.recommendations.map((r) => [r.ticker, r.quantityPlan]),
+  );
+  const positionRiskByTicker = new Map(
+    view.risk.positions.map((p) => [p.ticker, p]),
+  );
+  const actionPlan = runDecisionEngine({
+    positions: view.valuations.map((v) => ({
+      holding: v.holding,
+      currentWeight:
+        view.summary.totalValue > 0
+          ? v.marketValueBase / view.summary.totalValue
+          : 0,
+      marketValueBase: v.marketValueBase,
+      unitPriceBase: v.unitPrice ?? null,
+      factorScore: v.holding.factorScore ?? null,
+      positionRisk: positionRiskByTicker.get(v.holding.ticker) ?? null,
+      quantityPlan: quantityPlanByTicker.get(v.holding.ticker) ?? null,
+    })),
+    totalValue: view.summary.totalValue,
+    cashBalance: view.summary.cashBalance,
+    baseCurrency: view.summary.baseCurrency,
+    risk: view.risk,
+    policy: context.profile?.policy ?? null,
+    regime,
+    monthlyContribution,
+  });
+
+  // Opportunity Radar (top-3) + benchmark/attribution + business quality.
+  // Alle drie faal-safe; parallel-fetch deelt market-data cache.
+  const [opportunityReport, benchmark, businessQuality] = await Promise.all([
+    loadOpportunityData({
+      portfolio,
+      view,
+      userEmail: auth.user.email,
+      config: { maxCandidates: 3, minSignalStrength: 40 },
+    })
+      .then((r) => r.report)
+      .catch(() => null),
+    loadBenchmarkReport({ portfolio, view })
+      .then((r) => r.report)
+      .catch(() => null),
+    loadBusinessQualityBatch({ portfolio, view }).catch(() => null),
+  ]);
 
   return (
     <>
@@ -112,6 +179,13 @@ export default async function DashboardPage() {
       />
 
       <TopStats view={view} regime={regime} />
+
+      <Section
+        title="Wat moet ik NU doen?"
+        description="Rule-based aanbevelingen per positie + global advies. Alle aantallen komen uit dezelfde engines als /risico."
+      >
+        <ActionEngineCard plan={actionPlan} limit={3} />
+      </Section>
 
       <NextActionCard items={attention} />
 
@@ -147,6 +221,40 @@ export default async function DashboardPage() {
         <TopKansenCard candidates={opportunityReport?.candidates ?? []} />
         <BuyPlanPreviewCard plan={plan} />
       </div>
+
+      {benchmark && (
+        <Section
+          title="Benchmark & Attribution"
+          description="Performance van je portefeuille vs. een marktbenchmark, met attributie naar sectoren, factoren en individuele posities."
+        >
+          <BenchmarkCard report={benchmark} />
+        </Section>
+      )}
+
+      {businessQuality && businessQuality.ranked.length > 0 && (
+        <Section
+          title="Business quality"
+          description="Elke positie als bedrijf beoordeeld — moat, earnings-quality en capital-efficiency. 10-year-hold-indicator op basis van composite + sector + coverage."
+        >
+          <BusinessQualityCards results={businessQuality.ranked} limit={5} />
+        </Section>
+      )}
+
+      <Section
+        title="Netto rendement"
+        description="Indicatieve fiscale impact: box 3 (incl. spaargeld + schulden), NL dividendbelasting en buitenlandse withholding tax. Geen fiscaal advies."
+      >
+        <NetReturnCard
+          report={taxReport}
+          grossReturnSource={
+            twrYear !== null
+              ? "TWR_12M"
+              : grossReturnFraction !== 0
+                ? "UNREALIZED_PROXY"
+                : "ZERO"
+          }
+        />
+      </Section>
 
       <Section
         title="Historiek"

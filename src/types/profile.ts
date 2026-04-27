@@ -111,6 +111,13 @@ export interface UserProfile {
   monthlyContribution?: number | null;
   baseCurrency: Currency;
   taxResidency: string;
+  /** Heeft de gebruiker een fiscaal partner? Default false. Beïnvloedt
+   *  de box 3-vrijstelling én drempelschulden in de Tax Engine. */
+  hasFiscalPartner?: boolean;
+  /** Spaargeld in EUR (peildatum 1 jan). Optioneel — input voor box 3. */
+  cashWealthEur?: number;
+  /** Schulden in EUR (peildatum 1 jan). Optioneel — input voor box 3. */
+  debtWealthEur?: number;
   goals: InvestorGoal[];
   /** Ruwe product-preferences-blob (UI toggles, ESG-flags etc). */
   preferences: Record<string, unknown>;

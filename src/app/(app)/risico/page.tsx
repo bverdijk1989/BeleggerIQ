@@ -3,7 +3,7 @@ import { ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
-import { buildPortfolioView } from "@/lib/analytics";
+import { buildPortfolioView, runMacroScenarios } from "@/lib/analytics";
 import { runDefaultScenarios } from "@/lib/analytics/scenario";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
@@ -15,6 +15,7 @@ import {
   CurrencyExposureCard,
   SectorExposureCard,
 } from "./components/exposure-cards";
+import { MacroScenariosCard } from "./components/macro-scenarios-card";
 import { RebalanceQuantityCard } from "./components/rebalance-quantity-card";
 import { RiskPositionsTable } from "./components/risk-positions-table";
 import { RiskTopSummary } from "./components/risk-top-summary";
@@ -73,6 +74,17 @@ export default async function RisicoPage() {
     cashCurrency: summary.baseCurrency,
   });
 
+  // Macro & Scenario engine — pure functie over huidige posities.
+  // Indicatieve gevoeligheid; geen voorspelling.
+  const macroReport = runMacroScenarios({
+    positions: valuations.map((v) => ({
+      holding: v.holding,
+      marketValueBase: v.marketValueBase,
+    })),
+    totalValue: summary.totalValue,
+    baseCurrency: summary.baseCurrency,
+  });
+
   const updatedAt = new Date(view.lastUpdated).toLocaleString("nl-NL");
 
   return (
@@ -112,6 +124,13 @@ export default async function RisicoPage() {
         baseCurrency={summary.baseCurrency}
         currentValue={summary.totalValue}
       />
+
+      <Section
+        title="Wat als…"
+        description="Indicatieve macro-scenario's: rente +2%, markt -20%, USD +10% en recessie. Vaste sector- en asset-class-shocks; geen voorspelling, alleen gevoeligheid."
+      >
+        <MacroScenariosCard report={macroReport} />
+      </Section>
 
       <Section
         title="Concrete afbouwadviezen"
