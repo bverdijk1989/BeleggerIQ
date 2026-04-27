@@ -4,37 +4,56 @@ import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
 import {
+  AiExplainPanel,
+  AllocationDecisionPreview,
+  BusinessQualityBlock,
+  buildCockpitViewModel,
+  DecisionCockpitLayout,
+  DecisionHistoryPreview,
+  OpportunityPanel,
+  PortfolioStatusSnapshot,
+  PrimaryActionBar,
+  RiskActionPanel,
+  ScenarioSnapshot,
+} from "@/components/dashboard/decision-cockpit";
+import {
   buildAttentionItems,
+  buildDashboardPrimaryActions,
+  buildDecisionSnapshots,
+  buildPortfolioStatusSnapshot,
   buildPortfolioView,
+  buildRiskActions,
+  buildScenarioSnapshot,
   buildTaxReport,
+  classifyInstruments,
   computeTwrYear,
+  defaultMetadata,
+  detectPolicyViolations,
   generateAllocationPlan,
+  prioritizeOpportunities,
   runDecisionEngine,
+  runMacroScenarios,
+  simulateActionImpact,
+  summarizeBusinessQuality,
+  summarizeDecisionHistory,
 } from "@/lib/analytics";
+import { explainDashboardSummary } from "@/lib/ai";
+import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
 import { fetchRegimeInputs } from "@/lib/data/regime";
+import { enrichInstruments } from "@/lib/data/instrument-enrichment";
 import {
+  decisionHistoryRepository,
   portfolioRepository,
   portfolioSnapshotRepository,
 } from "@/lib/data";
 
-import {
-  CurrencyAllocationCard,
-  HoldingsAllocationCard,
-} from "./components/allocation-cards";
-import { BuyPlanPreviewCard } from "./components/buy-plan-preview-card";
+import { BenchmarkCard } from "./components/benchmark-card";
 import { HistoryCharts } from "./components/history-charts";
 import { MarketRegimeCard } from "./components/market-regime-card";
-import { NextActionCard } from "./components/next-action-card";
-import { TopRisksCard } from "./components/risks-and-opportunities";
-import { SnapshotButton } from "./components/snapshot-button";
-import { ActionEngineCard } from "./components/action-engine-card";
-import { BenchmarkCard } from "./components/benchmark-card";
-import { BusinessQualityCards } from "./components/business-quality-cards";
 import { NetReturnCard } from "./components/net-return-card";
-import { TopKansenCard } from "./components/top-kansen-card";
-import { TopStats } from "./components/top-stats";
+import { SnapshotButton } from "./components/snapshot-button";
 import { loadBenchmarkReport } from "./load-benchmark";
 import { loadBusinessQualityBatch } from "./load-business-quality";
 import { loadOpportunityData } from "../kansen/load-opportunity-data";
@@ -47,6 +66,22 @@ export const dynamic = "force-dynamic";
 
 const DEFAULT_BUDGET = 500;
 
+/**
+ * Decision Cockpit dashboard.
+ *
+ * Bovenaan (above-the-fold) staat de PrimaryActionBar + Portfolio
+ * Status zodat de gebruiker binnen ~5 seconden ziet:
+ *   1. wat hij nu moet doen
+ *   2. waarom (engine-rationale)
+ *   3. wat de impact is (urgency + cijfers)
+ *
+ * Daaronder volgt de details-laag (risico's / kansen / allocatie /
+ * scenario / AI-explain) en de "Verdieping"-sectie met diepere kaarten
+ * (benchmark, business-quality, netto rendement, historiek).
+ *
+ * Alle businesslogica zit in `@/lib/analytics`-engines + `buildCockpitViewModel`;
+ * de page-level component doet alleen I/O + rendering.
+ */
 export default async function DashboardPage() {
   const auth = await resolveUserFromServer();
   if (!auth.ok) return <UnauthenticatedState message={auth.error} />;
@@ -62,7 +97,6 @@ export default async function DashboardPage() {
   const portfolio = context.portfolio;
 
   // Parallel fetches: portfolio view + regime + historiek.
-  // Allocation plan kan pas daarna (heeft regime + view nodig).
   const [view, regimeFetch, snapshots] = await Promise.all([
     buildPortfolioView(portfolio, {
       includeFundamentals: true,
@@ -86,7 +120,7 @@ export default async function DashboardPage() {
       ? context.monthlyContribution
       : DEFAULT_BUDGET;
 
-  const plan = generateAllocationPlan({
+  const allocationPlan = generateAllocationPlan({
     portfolioId: portfolio.id,
     baseCurrency: view.summary.baseCurrency,
     valuations: view.valuations,
@@ -99,11 +133,8 @@ export default async function DashboardPage() {
   });
 
   const attention = buildAttentionItems(view.risk, view.rebalance);
-  const updatedAt = new Date(view.lastUpdated).toLocaleString("nl-NL");
 
-  // Tax-engine — indicatief netto rendement (box 3 + dividend-tax + WHT).
-  // Bruto rendement = TWR over trailing 12m uit snapshots; valt
-  // terug op unrealized-PnL-proxy bij <2 snapshots.
+  // Tax-engine — TWR-jaar als bruto-return; fallback proxy.
   const twrYear = computeTwrYear({ snapshots });
   const fallbackReturn =
     view.summary.totalValue > 0 && view.summary.unrealizedPnl !== undefined
@@ -123,8 +154,6 @@ export default async function DashboardPage() {
   });
 
   // Action & Rebalance Engine — pure rule-based decisions per positie.
-  // Hergebruikt rebalance-quantityPlans uit `view.rebalance` zodat de
-  // afbouw-aantallen exact matchen met /risico.
   const quantityPlanByTicker = new Map(
     view.rebalance.recommendations.map((r) => [r.ticker, r.quantityPlan]),
   );
@@ -153,14 +182,23 @@ export default async function DashboardPage() {
     monthlyContribution,
   });
 
+  // Macro-scenarios voor de cockpit-snapshot.
+  const macroScenarios = runMacroScenarios({
+    positions: view.valuations.map((v) => ({
+      holding: v.holding,
+      marketValueBase: v.marketValueBase,
+    })),
+    totalValue: view.summary.totalValue,
+    baseCurrency: view.summary.baseCurrency,
+  });
+
   // Opportunity Radar (top-3) + benchmark/attribution + business quality.
-  // Alle drie faal-safe; parallel-fetch deelt market-data cache.
   const [opportunityReport, benchmark, businessQuality] = await Promise.all([
     loadOpportunityData({
       portfolio,
       view,
       userEmail: auth.user.email,
-      config: { maxCandidates: 3, minSignalStrength: 40 },
+      config: { maxCandidates: 5, minSignalStrength: 40 },
     })
       .then((r) => r.report)
       .catch(() => null),
@@ -170,79 +208,337 @@ export default async function DashboardPage() {
     loadBusinessQualityBatch({ portfolio, view }).catch(() => null),
   ]);
 
+  // Dashboard primary actions — pure aggregator over alle engines.
+  // Levert max 3 zeer concrete acties zoals "Verkoop 1 aandeel
+  // Rheinmetall" / "Koop deze maand €300 ASML".
+  const assetClassByTicker = new Map(
+    portfolio.holdings.map((h) => [h.ticker, h.assetClass]),
+  );
+  const dashboardActions = buildDashboardPrimaryActions({
+    actionPlan,
+    rebalanceRecommendations: view.rebalance.recommendations,
+    allocationPlan,
+    regime,
+    risk: view.risk,
+    cashShare:
+      view.summary.totalValue > 0
+        ? view.summary.cashBalance / view.summary.totalValue
+        : 0,
+    assetClassByTicker,
+    policy: context.profile?.policy ?? null,
+    riskTolerance: context.profile?.riskTolerance ?? null,
+  });
+
+  // ============================================================
+  //  View-model voor de cockpit (pure mapping, geen rekenwerk)
+  // ============================================================
+  const cockpit = buildCockpitViewModel({
+    view,
+    actionPlan,
+    attention,
+    opportunities: opportunityReport?.candidates ?? [],
+    allocationPlan,
+    monthlyContribution,
+    benchmark,
+    businessRanked: businessQuality?.ranked ?? [],
+    taxReport,
+    scenarios: macroScenarios,
+    regime,
+  });
+
+  // Compacte 5-kaart status-snapshot (TOTAL_VALUE, HEALTH, VS_BENCHMARK,
+  // NET_RETURN, MARKET_REGIME). Pure aggregator over de bestaande
+  // analytics-output — geen extra I/O.
+  const statusSnapshot = buildPortfolioStatusSnapshot({
+    summary: view.summary,
+    health: view.health,
+    risk: view.risk,
+    benchmark,
+    tax: taxReport,
+    regime,
+  });
+
+  // Risk actions — combineert risk-engine flags, rebalance-quantity-engine,
+  // policy-engine violations en data-quality. Levert max 3 actiegerichte
+  // risico-kaarten met letterlijke shares/euro's uit de quantity-engine.
+  const enrichments = await enrichInstruments(
+    portfolio.holdings.map((h) => ({
+      ticker: h.ticker,
+      isin: h.isin ?? null,
+      name: h.name,
+    })),
+  ).catch(() => new Map());
+  const classifications = classifyInstruments({
+    items: portfolio.holdings.map((h) => ({
+      holding: h,
+      enrichment: enrichments.get(h.ticker) ?? null,
+    })),
+  });
+  const policyReport = detectPolicyViolations({
+    holdings: portfolio.holdings.map((h) => {
+      const valuation = view.valuations.find((v) => v.holding.id === h.id);
+      const classification =
+        classifications.get(h.ticker) ?? {
+          instrumentType: "UNKNOWN" as const,
+          confidence: "LOW" as const,
+          rationale: ["Geen classificatie beschikbaar."],
+          metadata: defaultMetadata(),
+          classifiedAt: new Date().toISOString(),
+        };
+      return {
+        holding: h,
+        marketValueBase: valuation?.marketValueBase ?? 0,
+        classification,
+      };
+    }),
+    totalValue: view.summary.totalValue,
+    context: {
+      userMaxSinglePositionWeight:
+        context.profile?.policy?.maxPositionWeight ?? null,
+    },
+  });
+  const qualityReport = assessPortfolioQuality({
+    holdings: portfolio.holdings.map((h) => {
+      const valuation = view.valuations.find((v) => v.holding.id === h.id);
+      const weight =
+        view.summary.totalValue > 0 && valuation
+          ? valuation.marketValueBase / view.summary.totalValue
+          : 0;
+      return {
+        holding: h,
+        enrichment: enrichments.get(h.ticker) ?? null,
+        weight,
+      };
+    }),
+  });
+  const riskActions = buildRiskActions({
+    risk: view.risk,
+    rebalanceRecommendations: view.rebalance.recommendations,
+    policyReport,
+    qualityReport,
+    baseCurrency: view.summary.baseCurrency,
+  });
+
+  // Opportunity prioritizer — top 3 dashboard-kansen op basis van de
+  // Opportunity Radar, met portfolio-weight + regime-aware rerank en
+  // een NL-actie ("onderzoeken" / "kleine bijkoop overwegen" /
+  // "wachten op target"). Pure aggregator; geen extra I/O.
+  const portfolioWeights = new Map<string, number>(
+    view.summary.totalValue > 0
+      ? view.valuations.map((v) => [
+          v.holding.ticker,
+          v.marketValueBase / view.summary.totalValue,
+        ])
+      : [],
+  );
+  const factorScoresMap = new Map(
+    view.valuations
+      .filter((v) => v.holding.factorScore != null)
+      .map((v) => [v.holding.ticker, v.holding.factorScore!]),
+  );
+  const dashboardOpportunities = prioritizeOpportunities({
+    candidates: opportunityReport?.candidates ?? [],
+    regime,
+    portfolioWeights,
+    factorScores: factorScoresMap,
+  });
+
+  // Action-impact simulator — "wat gebeurt er als ik dit advies volg?".
+  // Pure aggregator: muteert valuations + cash op basis van de
+  // dashboard-actions, herbouwt allocatie/concentratie/valuta-snapshots
+  // vóór/na en levert top-3 impact-deltas. Geen orders, geen broker.
+  const actionImpact = simulateActionImpact({
+    baseCurrency: view.summary.baseCurrency,
+    holdings: portfolio.holdings,
+    valuations: view.valuations,
+    cashBalance: view.summary.cashBalance,
+    dashboardActions,
+    rebalanceRecommendations: view.rebalance.recommendations,
+    allocationPlan,
+  });
+
+  // Business Quality summary — Buffett-laag voor het dashboard. Pure
+  // aggregator over de bestaande Business Quality Layer-output, met
+  // weight + label-bucketing in NL ("Sterk bedrijf" / "Cyclisch" /
+  // "Speculatief" / "Langetermijnhouder").
+  // AI Explain — pure deterministische dashboard-samenvatting. Geen
+  // LLM-call; legt alleen uit wat de bovenliggende engines al hebben
+  // besloten. Komt onderaan de cockpit en is collapsed by default.
+  const explainerDataQualityNotes: string[] = [];
+  if (qualityReport.unknownSectorWeight >= 0.10) {
+    explainerDataQualityNotes.push(
+      `${(qualityReport.unknownSectorWeight * 100).toFixed(0)}% van de portefeuille mist sector-data — beïnvloedt risk- en factor-output.`,
+    );
+  }
+  if (policyReport.violations.some((v) => v.violationSeverity === "critical")) {
+    explainerDataQualityNotes.push(
+      "Eén of meer policy-overschrijdingen in 'critical'-staat — controleer position-caps.",
+    );
+  }
+  const overallExplainerConfidence = (() => {
+    const candidates: number[] = [];
+    if (dashboardActions.length > 0) {
+      candidates.push(
+        dashboardActions.reduce((s, a) => s + a.confidence, 0) /
+          dashboardActions.length,
+      );
+    }
+    if (riskActions.length > 0) {
+      candidates.push(
+        riskActions.reduce((s, r) => s + r.confidence, 0) /
+          riskActions.length,
+      );
+    }
+    if (candidates.length === 0) return 0.5;
+    return candidates.reduce((s, c) => s + c, 0) / candidates.length;
+  })();
+  const dashboardExplanation = explainDashboardSummary({
+    topActions: dashboardActions,
+    topRisks: riskActions,
+    topOpportunities: dashboardOpportunities,
+    regime,
+    dataQualityNotes: explainerDataQualityNotes,
+    overallConfidence: overallExplainerConfidence,
+  });
+
+  // Scenario-snapshot — compact "Wat als…"-blok. Pure aggregator boven
+  // de bestaande macro-engine. Defensief-regime kaart wordt deterministisch
+  // afgeleid; ui rekent niets.
+  const scenarioSnapshot = buildScenarioSnapshot({
+    macroReport: macroScenarios,
+    regime,
+    riskTolerance: context.profile?.riskTolerance ?? null,
+    foreignCurrencyWeight:
+      actionImpact.currentCurrencyExposure.foreignCurrencyWeight,
+  });
+
+  const businessQualitySummary = businessQuality
+    ? summarizeBusinessQuality({
+        results: businessQuality.ranked,
+        holdings: portfolio.holdings,
+        factorScores: factorScoresMap,
+        marketValueByTicker: new Map(
+          view.valuations.map((v) => [v.holding.ticker, v.marketValueBase]),
+        ),
+        totalValue: view.summary.totalValue,
+      })
+    : null;
+
+  // Decision History — log advies-snapshots én bouw de UI-summary.
+  // Pure aggregator + idempotent upsert: dashboard-loads in hetzelfde
+  // uur produceren geen duplicaten.
+  const decisionSnapshotsToWrite = buildDecisionSnapshots({
+    actions: dashboardActions,
+    baseCurrency: view.summary.baseCurrency,
+  });
+  let decisionRecords: Awaited<
+    ReturnType<typeof decisionHistoryRepository.listForUser>
+  > = [];
+  try {
+    await decisionHistoryRepository.upsertMany(
+      context.userId,
+      portfolio.id,
+      decisionSnapshotsToWrite,
+    );
+    await decisionHistoryRepository.reapExpired();
+    decisionRecords = await decisionHistoryRepository.listForUser(
+      context.userId,
+      { limit: 25 },
+    );
+  } catch {
+    // Persistence is best-effort op het dashboard — een gefaalde
+    // upsert mag de cockpit niet breken.
+    decisionRecords = [];
+  }
+  const decisionHistorySummary = summarizeDecisionHistory({
+    records: decisionRecords,
+  });
+
   return (
     <>
-      <PageHeader
-        eyebrow="Overzicht"
-        title="Dashboard"
-        description={`Actiegerichte cockpit voor je portefeuille. Bijgewerkt ${updatedAt}.`}
+      <DecisionCockpitLayout
+        header={
+          <PageHeader
+            eyebrow="Overzicht"
+            title="Decision Cockpit"
+            description={`Wat doe je nu, waarom, en wat is de impact? Bijgewerkt ${cockpit.asOfLabel}.`}
+          />
+        }
+        primaryAction={
+          <PrimaryActionBar
+            actions={dashboardActions}
+            baseCurrency={cockpit.baseCurrency}
+          />
+        }
+        status={<PortfolioStatusSnapshot snapshot={statusSnapshot} />}
+        risks={<RiskActionPanel actions={riskActions} />}
+        opportunities={<OpportunityPanel opportunities={dashboardOpportunities} />}
+        allocation={
+          <AllocationDecisionPreview
+            simulation={actionImpact}
+            baseCurrency={cockpit.baseCurrency}
+          />
+        }
+        scenario={
+          <ScenarioSnapshot
+            snapshot={scenarioSnapshot}
+            baseCurrency={cockpit.baseCurrency}
+          />
+        }
+        aiExplain={<AiExplainPanel explanation={dashboardExplanation} />}
       />
 
-      <TopStats view={view} regime={regime} />
-
       <Section
-        title="Wat moet ik NU doen?"
-        description="Rule-based aanbevelingen per positie + global advies. Alle aantallen komen uit dezelfde engines als /risico."
+        title="Adviesgeschiedenis"
+        description="Welke adviezen heeft de cockpit eerder gegeven en wat heb je ermee gedaan? Markeer als 'Gedaan' of 'Genegeerd' zodra je de actie afhandelt."
       >
-        <ActionEngineCard plan={actionPlan} limit={3} />
+        <DecisionHistoryPreview
+          summary={decisionHistorySummary}
+          baseCurrency={cockpit.baseCurrency}
+        />
       </Section>
 
-      <NextActionCard items={attention} />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <MarketRegimeCard
-          regime={
-            regime ?? {
-              asOf: new Date().toISOString(),
-              score: 50,
-              stance: "NEUTRAL",
-              confidence: 0,
-              narrative: "Geen marktdata beschikbaar.",
-              subDrivers: [],
+      <Section
+        title="Verdieping"
+        description="Achtergrond bij je cockpit — marktregime, vergelijking met de index, bedrijfskwaliteit en netto rendement. Niet nodig voor je beslissing van vandaag."
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+          <MarketRegimeCard
+            regime={
+              regime ?? {
+                asOf: new Date().toISOString(),
+                score: 50,
+                stance: "NEUTRAL",
+                confidence: 0,
+                narrative: "Geen marktdata beschikbaar.",
+                subDrivers: [],
+              }
             }
-          }
-        />
-        <HoldingsAllocationCard
-          positions={view.summary.topPositions}
-          baseCurrency={view.summary.baseCurrency}
-        />
-      </div>
+          />
+          {benchmark ? (
+            <BenchmarkCard report={benchmark} />
+          ) : (
+            <EmptyState
+              icon={ShieldAlert}
+              title="Geen benchmark-data"
+              description="Benchmark-fetch faalde of leverde te weinig observaties."
+            />
+          )}
+        </div>
+      </Section>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <CurrencyAllocationCard
-          slices={view.summary.allocationByCurrency}
-          baseCurrency={view.summary.baseCurrency}
-          foreignExposure={view.risk.foreignCurrencyExposure}
-        />
-        <TopRisksCard risk={view.risk} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <TopKansenCard candidates={opportunityReport?.candidates ?? []} />
-        <BuyPlanPreviewCard plan={plan} />
-      </div>
-
-      {benchmark && (
+      {businessQualitySummary && (
         <Section
-          title="Benchmark & Attribution"
-          description="Performance van je portefeuille vs. een marktbenchmark, met attributie naar sectoren, factoren en individuele posities."
+          title="Bedrijfskwaliteit"
+          description="Elke positie als bedrijf beoordeeld — sterke bedrijven, cyclische blootstellingen en 10-jaars-houders in één overzicht."
         >
-          <BenchmarkCard report={benchmark} />
-        </Section>
-      )}
-
-      {businessQuality && businessQuality.ranked.length > 0 && (
-        <Section
-          title="Business quality"
-          description="Elke positie als bedrijf beoordeeld — moat, earnings-quality en capital-efficiency. 10-year-hold-indicator op basis van composite + sector + coverage."
-        >
-          <BusinessQualityCards results={businessQuality.ranked} limit={5} />
+          <BusinessQualityBlock summary={businessQualitySummary} />
         </Section>
       )}
 
       <Section
         title="Netto rendement"
-        description="Indicatieve fiscale impact: box 3 (incl. spaargeld + schulden), NL dividendbelasting en buitenlandse withholding tax. Geen fiscaal advies."
+        description="Wat houd je over na belasting? Schatting voor box 3 (inclusief spaargeld + schulden), NL dividendbelasting en buitenlandse bronbelasting. Geen fiscaal advies."
       >
         <NetReturnCard
           report={taxReport}
@@ -258,24 +554,13 @@ export default async function DashboardPage() {
 
       <Section
         title="Historiek"
-        description="Time-series uit opgeslagen snapshots. Draai `Snapshot nu` of de scheduled job om nieuwe punten toe te voegen."
+        description="Hoe ontwikkelt je portefeuille zich? Druk op 'Snapshot nu' of laat de geplande job dit dagelijks doen."
         actions={<SnapshotButton portfolioId={portfolio.id} />}
       >
         <HistoryCharts
           snapshots={snapshots}
           baseCurrency={view.summary.baseCurrency}
         />
-      </Section>
-
-      <Section
-        title="Over deze cockpit"
-        description="Alle cijfers komen uit dezelfde engines als de detailpagina's."
-      >
-        <div className="rounded-md border border-border/60 bg-surface/60 p-4 text-sm text-muted-foreground">
-          Health, risk, market regime en de maandbeslissing lopen synchroon:
-          wijzig je filters of policy op de detailpagina&apos;s, dan volgt het
-          dashboard automatisch bij de volgende refresh.
-        </div>
       </Section>
     </>
   );
@@ -286,13 +571,13 @@ function NoPortfolioState() {
     <>
       <PageHeader
         eyebrow="Overzicht"
-        title="Dashboard"
+        title="Decision Cockpit"
         description="Nog geen portefeuille gevonden — draai `npm run prisma:seed` om demo-data te laden."
       />
       <EmptyState
         icon={LayoutDashboard}
         title="Geen portefeuille"
-        description="Zodra er holdings zijn, vult het dashboard zich met health, risico, marktregime en je maandbeslissing."
+        description="Zodra er holdings zijn, vult de cockpit zich met je primary action, status, risico's en kansen."
       />
     </>
   );
@@ -303,7 +588,7 @@ function UnauthenticatedState({ message }: { message: string }) {
     <>
       <PageHeader
         eyebrow="Overzicht"
-        title="Dashboard"
+        title="Decision Cockpit"
         description="Authenticatie vereist om je cockpit te laden."
       />
       <EmptyState

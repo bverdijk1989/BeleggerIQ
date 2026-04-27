@@ -25,12 +25,12 @@ datasource db {
 /// Centrale gebruiker van de app. Eén user kan meerdere portefeuilles,
 /// watchlist items, strategy presets en backtest-runs bezitten.
 model User {
-  id              String           @id @default(cuid())
-  email           String           @unique
-  name            String?
-  image           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   profile           UserProfile?
   portfolios        Portfolio[]
@@ -38,6 +38,7 @@ model User {
   huntingSignalLogs HuntingSignalLog[]
   strategyPresets   StrategyPreset[]
   backtestRuns      BacktestRun[]
+  decisionSnapshots DecisionSnapshot[]
 
   @@index([email])
 }
@@ -47,25 +48,25 @@ model User {
 /// wijziging een migratie vragen. Hardgekoppelde velden zoals horizon en
 /// contribution blijven typed voor query-performance.
 model UserProfile {
-  id                    String               @id @default(cuid())
-  userId                String               @unique
-  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  investorType          InvestorType         @default(LONG_TERM)
-  objective             InvestmentObjective  @default(BALANCED)
-  riskTolerance         RiskTolerance        @default(BALANCED)
-  investmentHorizonYrs  Int                  @default(10)
-  monthlyContribution   Decimal?             @db.Decimal(14, 2)
-  baseCurrency          String               @default("EUR")
-  taxResidency          String               @default("NL")
+  investorType         InvestorType        @default(LONG_TERM)
+  objective            InvestmentObjective @default(BALANCED)
+  riskTolerance        RiskTolerance       @default(BALANCED)
+  investmentHorizonYrs Int                 @default(10)
+  monthlyContribution  Decimal?            @db.Decimal(14, 2)
+  baseCurrency         String              @default("EUR")
+  taxResidency         String              @default("NL")
 
-  goals                 Json?
-  preferences           Json?
+  goals       Json?
+  preferences Json?
   /// Gestructureerde PolicySettings (zie src/types/profile.ts).
-  policy                Json?
+  policy      Json?
 
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================================
@@ -75,21 +76,22 @@ model UserProfile {
 /// Portefeuille: container voor posities, snapshots en backtest-runs.
 /// `isPrimary` markeert de standaardportefeuille van een user.
 model Portfolio {
-  id            String              @id @default(cuid())
-  userId        String
-  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name          String
-  description   String?
-  baseCurrency  String              @default("EUR")
-  isPrimary     Boolean             @default(false)
+  name         String
+  description  String?
+  baseCurrency String  @default("EUR")
+  isPrimary    Boolean @default(false)
 
-  holdings      Holding[]
-  snapshots    PortfolioSnapshot[]
-  backtestRuns BacktestRun[]
+  holdings          Holding[]
+  snapshots         PortfolioSnapshot[]
+  backtestRuns      BacktestRun[]
+  decisionSnapshots DecisionSnapshot[]
 
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, isPrimary])
@@ -100,34 +102,34 @@ model Portfolio {
 /// De "enrichment" velden (beta, volatility, scores) zijn optionele caches vanuit de
 /// analytics engines — authoritative data zit in FactorSnapshot en PortfolioSnapshot.
 model Holding {
-  id              String     @id @default(cuid())
-  portfolioId     String
-  portfolio       Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
-  ticker          String
-  isin            String?
-  name            String
-  assetClass      AssetClass @default(EQUITY)
-  currency        String     @default("EUR")
+  ticker     String
+  isin       String?
+  name       String
+  assetClass AssetClass @default(EQUITY)
+  currency   String     @default("EUR")
 
-  quantity        Decimal    @db.Decimal(20, 8)
-  avgCostPrice    Decimal    @db.Decimal(20, 8)
-  currentPrice    Decimal?   @db.Decimal(20, 8)
+  quantity     Decimal  @db.Decimal(20, 8)
+  avgCostPrice Decimal  @db.Decimal(20, 8)
+  currentPrice Decimal? @db.Decimal(20, 8)
 
-  sector          String?
-  region          String?
+  sector String?
+  region String?
 
   // --- Enrichment cache ---
-  beta            Decimal?   @db.Decimal(10, 4)
-  volatility      Decimal?   @db.Decimal(10, 6)
-  moatLikeScore   Decimal?   @db.Decimal(5, 4)
-  targetWeight    Decimal?   @db.Decimal(5, 4)
-  convictionScore Decimal?   @db.Decimal(5, 4)
+  beta            Decimal? @db.Decimal(10, 4)
+  volatility      Decimal? @db.Decimal(10, 6)
+  moatLikeScore   Decimal? @db.Decimal(5, 4)
+  targetWeight    Decimal? @db.Decimal(5, 4)
+  convictionScore Decimal? @db.Decimal(5, 4)
 
-  metadata        Json?
+  metadata Json?
 
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([portfolioId, ticker])
   @@index([portfolioId])
@@ -143,26 +145,26 @@ model Holding {
 /// Denormaliseert enkele headline-velden (value, cost, cash) voor snelle queries;
 /// rijkere metrics gaan in `metrics` als Json.
 model PortfolioSnapshot {
-  id           String       @id @default(cuid())
-  portfolioId  String
-  portfolio    Portfolio    @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
-  capturedAt   DateTime     @default(now())
-  totalValue   Decimal      @db.Decimal(20, 2)
-  totalCost    Decimal      @db.Decimal(20, 2)
-  cashBalance  Decimal      @default(0) @db.Decimal(20, 2)
+  capturedAt  DateTime @default(now())
+  totalValue  Decimal  @db.Decimal(20, 2)
+  totalCost   Decimal  @db.Decimal(20, 2)
+  cashBalance Decimal  @default(0) @db.Decimal(20, 2)
 
   unrealizedPnl    Decimal? @db.Decimal(20, 2)
   unrealizedPnlPct Decimal? @db.Decimal(10, 6)
   volatility       Decimal? @db.Decimal(10, 6)
   drawdown         Decimal? @db.Decimal(10, 6)
 
-  regimeLabel  RegimeLabel?
-  healthGrade  HealthGrade?
-  healthScore  Decimal?     @db.Decimal(5, 2)
+  regimeLabel RegimeLabel?
+  healthGrade HealthGrade?
+  healthScore Decimal?     @db.Decimal(5, 2)
 
   /// Rijkere, flexibele metrics (exposure, factor alignment, etc).
-  metrics      Json?
+  metrics Json?
 
   @@index([portfolioId, capturedAt])
 }
@@ -170,8 +172,8 @@ model PortfolioSnapshot {
 /// Markt-brede snapshot: regime, volatility, rente, inflatie en breadth.
 /// Onafhankelijk van een user — wordt per run van de regime-engine geschreven.
 model MarketSnapshot {
-  id               String      @id @default(cuid())
-  capturedAt       DateTime    @default(now())
+  id         String   @id @default(cuid())
+  capturedAt DateTime @default(now())
 
   regimeLabel      RegimeLabel @default(UNKNOWN)
   regimeConfidence Decimal?    @db.Decimal(5, 4)
@@ -181,9 +183,9 @@ model MarketSnapshot {
   breadthScore     Decimal?    @db.Decimal(5, 4)
 
   /// Array van indicator-objecten (zie MarketRegimeIndicator type).
-  indicators       Json?
-  narrative        String?
-  source           String?
+  indicators Json?
+  narrative  String?
+  source     String?
 
   @@index([capturedAt])
   @@index([regimeLabel, capturedAt])
@@ -193,27 +195,27 @@ model MarketSnapshot {
 /// engines (bv. "default", "experimental"). Unique per (ticker, capturedAt, model)
 /// maakt een run idempotent.
 model FactorSnapshot {
-  id             String    @id @default(cuid())
-  ticker         String
-  isin           String?
-  capturedAt     DateTime  @default(now())
-  model          String    @default("default")
+  id         String   @id @default(cuid())
+  ticker     String
+  isin       String?
+  capturedAt DateTime @default(now())
+  model      String   @default("default")
 
-  valueScore     Decimal?  @db.Decimal(6, 4)
-  qualityScore   Decimal?  @db.Decimal(6, 4)
-  momentumScore  Decimal?  @db.Decimal(6, 4)
-  lowVolScore    Decimal?  @db.Decimal(6, 4)
-  growthScore    Decimal?  @db.Decimal(6, 4)
-  dividendScore  Decimal?  @db.Decimal(6, 4)
-  sizeScore      Decimal?  @db.Decimal(6, 4)
+  valueScore    Decimal? @db.Decimal(6, 4)
+  qualityScore  Decimal? @db.Decimal(6, 4)
+  momentumScore Decimal? @db.Decimal(6, 4)
+  lowVolScore   Decimal? @db.Decimal(6, 4)
+  growthScore   Decimal? @db.Decimal(6, 4)
+  dividendScore Decimal? @db.Decimal(6, 4)
+  sizeScore     Decimal? @db.Decimal(6, 4)
 
-  composite      Decimal?  @db.Decimal(6, 4)
-  percentile     Decimal?  @db.Decimal(5, 4)
-  confidence     Decimal?  @db.Decimal(5, 4)
+  composite  Decimal? @db.Decimal(6, 4)
+  percentile Decimal? @db.Decimal(5, 4)
+  confidence Decimal? @db.Decimal(5, 4)
 
   /// Gedenormaliseerde fundamentals (FundamentalsSnapshot shape) voor audit.
-  fundamentals   Json?
-  source         String?
+  fundamentals Json?
+  source       String?
 
   @@unique([ticker, capturedAt, model])
   @@index([ticker, capturedAt])
@@ -227,31 +229,31 @@ model FactorSnapshot {
 /// Herbruikbare strategy preset. Publieke presets hebben `ownerId = null`
 /// en `isPublic = true`; privé presets horen bij een user.
 model StrategyPreset {
-  id                 String              @id @default(cuid())
-  slug               String              @unique
-  name               String
-  description        String
-  type               StrategyType        @default(FACTOR)
-  tags               String[]            @default([])
-  isPublic           Boolean             @default(false)
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  name        String
+  description String
+  type        StrategyType @default(FACTOR)
+  tags        String[]     @default([])
+  isPublic    Boolean      @default(false)
 
-  ownerId            String?
-  owner              User?               @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
-  rebalance          RebalanceFrequency  @default(MONTHLY)
-  maxPositions       Int?
-  maxPositionWeight  Decimal?            @db.Decimal(5, 4)
-  minMarketCap       Decimal?            @db.Decimal(20, 2)
+  rebalance         RebalanceFrequency @default(MONTHLY)
+  maxPositions      Int?
+  maxPositionWeight Decimal?           @db.Decimal(5, 4)
+  minMarketCap      Decimal?           @db.Decimal(20, 2)
 
   /// FactorWeights object.
-  factorWeights      Json
+  factorWeights  Json
   /// Vrij filterobject voor de screener.
-  universeFilter     Json?
+  universeFilter Json?
 
-  backtestRuns       BacktestRun[]
+  backtestRuns BacktestRun[]
 
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([ownerId])
   @@index([isPublic, type])
@@ -260,34 +262,34 @@ model StrategyPreset {
 /// Uitvoering van een backtest. Config en rijke output (equity curve etc.)
 /// staan als Json; headline-metrics staan als Decimal voor sortering in UI.
 model BacktestRun {
-  id              String          @id @default(cuid())
-  name            String
-  status          BacktestStatus  @default(PENDING)
+  id     String         @id @default(cuid())
+  name   String
+  status BacktestStatus @default(PENDING)
 
-  userId          String
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  portfolioId     String?
-  portfolio       Portfolio?      @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
-  strategyId      String?
-  strategy        StrategyPreset? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolioId String?
+  portfolio   Portfolio?      @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+  strategyId  String?
+  strategy    StrategyPreset? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
 
-  startDate       DateTime
-  endDate         DateTime
-  initialCapital  Decimal         @db.Decimal(20, 2)
-  baseCurrency    String          @default("EUR")
+  startDate      DateTime
+  endDate        DateTime
+  initialCapital Decimal  @db.Decimal(20, 2)
+  baseCurrency   String   @default("EUR")
 
   // Resultaat-metrics (fracties tenzij anders aangegeven)
-  totalReturn     Decimal?        @db.Decimal(10, 6)
-  cagr            Decimal?        @db.Decimal(10, 6)
-  volatility      Decimal?        @db.Decimal(10, 6)
-  sharpe          Decimal?        @db.Decimal(10, 4)
-  sortino         Decimal?        @db.Decimal(10, 4)
-  maxDrawdown     Decimal?        @db.Decimal(10, 6)
-  calmar          Decimal?        @db.Decimal(10, 4)
-  winRate         Decimal?        @db.Decimal(5, 4)
-  turnover        Decimal?        @db.Decimal(10, 6)
-  finalValue      Decimal?        @db.Decimal(20, 2)
-  tradesCount     Int?
+  totalReturn Decimal? @db.Decimal(10, 6)
+  cagr        Decimal? @db.Decimal(10, 6)
+  volatility  Decimal? @db.Decimal(10, 6)
+  sharpe      Decimal? @db.Decimal(10, 4)
+  sortino     Decimal? @db.Decimal(10, 4)
+  maxDrawdown Decimal? @db.Decimal(10, 6)
+  calmar      Decimal? @db.Decimal(10, 4)
+  winRate     Decimal? @db.Decimal(5, 4)
+  turnover    Decimal? @db.Decimal(10, 6)
+  finalValue  Decimal? @db.Decimal(20, 2)
+  tradesCount Int?
 
   /// BacktestConfig (zie src/types/backtest.ts).
   config          Json
@@ -299,8 +301,8 @@ model BacktestRun {
   regimeBreakdown Json?
   errorMessage    String?
 
-  startedAt       DateTime        @default(now())
-  completedAt     DateTime?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
 
   @@index([userId, startedAt])
   @@index([strategyId])
@@ -324,27 +326,27 @@ model BacktestRun {
 ///   user-gedefinieerde valuation-drempels. Detectie is off-by-default.
 /// - Unique(userId, ticker) voorkomt dubbele entries bij herhaald toevoegen.
 model WatchlistItem {
-  id                    String   @id @default(cuid())
-  userId                String
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  ticker                String
-  name                  String?
-  note                  String?
+  ticker String
+  name   String?
+  note   String?
 
   // Target-zone config
-  targetPrice           Decimal? @db.Decimal(20, 8)
-  targetPriceHigh       Decimal? @db.Decimal(20, 8)
-  buyZoneTolerance      Float?
+  targetPrice      Decimal? @db.Decimal(20, 8)
+  targetPriceHigh  Decimal? @db.Decimal(20, 8)
+  buyZoneTolerance Float?
 
   // Valuation-band config (user-defined triggers)
-  valuationMaxPE        Float?
-  valuationMinFcfYield  Float?
+  valuationMaxPE       Float?
+  valuationMinFcfYield Float?
 
-  addedAt               DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  addedAt   DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  signalLogs            HuntingSignalLog[]
+  signalLogs HuntingSignalLog[]
 
   @@unique([userId, ticker])
   @@index([userId, addedAt])
@@ -359,29 +361,91 @@ model WatchlistItem {
 /// niet-verlopen log van hetzelfde type bestaat. Zo blijft het log
 /// een opportunity-history i.p.v. een tick-stream.
 model HuntingSignalLog {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   watchlistItemId String?
   watchlistItem   WatchlistItem? @relation(fields: [watchlistItemId], references: [id], onDelete: SetNull)
 
-  ticker          String
-  triggerType     String   // "target-zone-reached" | "target-zone-near" | "valuation-band-reached"
-  severity        String   // "LOW" | "MEDIUM" | "HIGH"
+  ticker      String
+  triggerType String // "target-zone-reached" | "target-zone-near" | "valuation-band-reached"
+  severity    String // "LOW" | "MEDIUM" | "HIGH"
 
-  price           Decimal? @db.Decimal(20, 8)
-  currency        String?
-  pe              Float?
-  fcfYield        Float?
-  rationale       String?  // JSON-stringified array of NL-bullets
-  note            String?
+  price     Decimal? @db.Decimal(20, 8)
+  currency  String?
+  pe        Float?
+  fcfYield  Float?
+  rationale String? // JSON-stringified array of NL-bullets
+  note      String?
 
-  firedAt         DateTime @default(now())
-  expiresAt       DateTime
+  firedAt   DateTime @default(now())
+  expiresAt DateTime
 
   @@index([userId, ticker, firedAt])
   @@index([userId, firedAt])
+  @@index([expiresAt])
+}
+
+/// Decision History — append-only log van adviezen die de cockpit aan
+/// de gebruiker heeft voorgesteld. Per advies wordt een snapshot
+/// vastgelegd zodat we achteraf kunnen evalueren: welke acties zijn
+/// daadwerkelijk uitgevoerd, welke genegeerd, welke verlopen?
+///
+/// Conventies:
+/// - **Append-only.** We muteren `status` en `statusUpdatedAt` in-place,
+///   maar de oorspronkelijke advies-payload (`actionType`, `symbol`,
+///   `shares`, `amount`, `rationale`, `confidence`) blijft onaangeroerd.
+/// - **Geen brokerkoppeling.** "marked_done" betekent dat de gebruiker
+///   zegt het uitgevoerd te hebben — wij verifieren dat niet.
+/// - **Idempotent op (userId, suggestedAt-bucket, actionType, symbol).**
+///   Repository gebruikt een 1-uur-bucket zodat repeated dashboard-loads
+///   geen duplicaten produceren.
+model DecisionSnapshot {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  portfolioId String?
+  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+
+  /// Stabiel id uit de dashboard-action (bv. "RISK_REDUCTION:RHM").
+  /// Niet uniek — de gebruiker kan meerdere snapshots voor dezelfde
+  /// (type, symbol)-combinatie hebben, maar telkens 1 per uur-bucket.
+  decisionKey String
+
+  suggestedAt     DateTime @default(now())
+  /// Begin van de uur-bucket waarin dit advies viel — gebruikt voor
+  /// idempotente upserts.
+  suggestedBucket DateTime
+
+  actionType   DecisionActionType
+  symbol       String?
+  shares       Int?
+  amount       Decimal?           @db.Decimal(20, 2)
+  baseCurrency String             @default("EUR")
+
+  /// Eén-zin uitleg uit de engine (action.title of action.reason).
+  title        String
+  /// Volledige rationale-string (engine-reason of explainer-narrative).
+  rationale    String?
+  /// 0..1 — overgenomen uit dashboard-action.
+  confidence   Decimal @db.Decimal(5, 4)
+  /// Engine-bron ("rebalance-engine" / "action-engine" / etc.).
+  sourceEngine String
+
+  status          DecisionStatus @default(SUGGESTED)
+  statusUpdatedAt DateTime       @default(now())
+  /// Optionele user-note bij `marked_done` of `ignored`.
+  statusNote      String?
+
+  /// Vervaldatum: na deze datum wordt de status auto-omgezet naar EXPIRED
+  /// door het housekeeping-proces (`reapDecisionSnapshots`).
+  expiresAt DateTime
+
+  @@unique([userId, suggestedBucket, decisionKey])
+  @@index([userId, suggestedAt])
+  @@index([userId, status])
   @@index([expiresAt])
 }
 
@@ -467,4 +531,25 @@ enum HealthGrade {
   C
   D
   F
+}
+
+/// Status van een advies in de Decision History. `SUGGESTED` is de
+/// default na opslag. `MARKED_DONE` zet de gebruiker zelf wanneer 'ie
+/// de actie heeft uitgevoerd; `IGNORED` wanneer 'ie het advies bewust
+/// niet opvolgt; `EXPIRED` wordt automatisch gezet als de
+/// `expiresAt`-datum gepasseerd is.
+enum DecisionStatus {
+  SUGGESTED
+  MARKED_DONE
+  IGNORED
+  EXPIRED
+}
+
+/// Type advies dat de cockpit heeft voorgesteld. Lijn 1-op-1 met
+/// `DashboardActionType` uit `lib/analytics/actions`.
+enum DecisionActionType {
+  RISK_REDUCTION
+  BUY_OPPORTUNITY
+  HOLD_CASH
+  DO_NOTHING
 }

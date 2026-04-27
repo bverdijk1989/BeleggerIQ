@@ -2,6 +2,595 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · Decision History (DecisionSnapshot model + history-preview)
+
+### Added
+- [`prisma/schema.prisma`](prisma/schema.prisma) — nieuwe `DecisionSnapshot` model met `User`/`Portfolio` relaties, `decisionKey`, `actionType`, `symbol`, `shares`, `amount`, `title`, `rationale`, `confidence`, `sourceEngine`, `status`, `statusUpdatedAt`, `statusNote`, `expiresAt`. Unique key `(userId, suggestedBucket, decisionKey)` zodat herhaalde dashboard-loads idempotent zijn. Twee enums: `DecisionStatus` (`SUGGESTED` / `MARKED_DONE` / `IGNORED` / `EXPIRED`) en `DecisionActionType` (lijn 1-op-1 met `DashboardActionType`).
+- [`src/lib/analytics/decision-history/`](src/lib/analytics/decision-history/) — pure analytics-laag:
+  - **`types.ts`** — `DecisionRecord`, `DecisionStatus`, `DecisionActionType`, `DecisionHistorySummary`.
+  - **`snapshot-builder.ts`** — `buildDecisionSnapshots(actions, baseCurrency, ttlDays?)` mapt `DashboardAction[]` naar persistable rijen; filtert `DO_NOTHING`; clamp confidence; uur-bucket via `bucketStart()`. `isValidStatusTransition(from, to)` valideert state-machine (alleen `SUGGESTED` mag naar een eindstatus).
+  - **`summary.ts`** — `summarizeDecisionHistory({ records, now?, recentLimit? })` levert `total`, `bucketCounts`, top-3 `recent`, `actionableCount` (SUGGESTED + niet-verlopen) en een NL-headline.
+  - **`index.ts`** — barrel.
+- [`src/lib/analytics/decision-history/decision-history.test.ts`](src/lib/analytics/decision-history/decision-history.test.ts) — **19 tests**: builder mapt action-velden, filtert DO_NOTHING, expiresAt-default + custom ttlDays, bucketStart op uur-grens, null-fallbacks bij missing shares/amount, confidence-clamping, state-machine-transitions (geldig + invalid), summary bucketCounts + actionableCount + recent-sortering + recentLimit + NL-headline + determinisme.
+- [`src/lib/data/decision-history-repository.ts`](src/lib/data/decision-history-repository.ts) — server-only repository: `upsertMany` (idempotent op uur-bucket), `listForUser`, `findById`, `resolveOwner` (lichtgewicht), `updateStatus` (audit-velden) en `reapExpired` (housekeeping).
+- [`src/app/api/decisions/[id]/status/route.ts`](src/app/api/decisions/[id]/status/route.ts) — `PATCH /api/decisions/[id]/status` accepteert `{ status: "MARKED_DONE" | "IGNORED", note?: string }`. Auth-check via `resolveUserFromServer` + email→userId-lookup; eigenaar-check via `resolveOwner`; state-machine-validatie via `isValidStatusTransition`. Geen broker-call.
+- [`src/components/dashboard/decision-cockpit/decision-history-preview.tsx`](src/components/dashboard/decision-cockpit/decision-history-preview.tsx) — client component: header met NL-headline + status-pills, top-3 recente records, "Gedaan" / "Negeer"-knoppen die per record naar de PATCH-endpoint posten, optimistic-update, error-state. Disclaimer onderaan: "Geen broker-koppeling — 'Gedaan' is een eigen notitie voor evaluatie."
+
+### Changed
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./decision-history"`.
+- [`src/lib/data/index.ts`](src/lib/data/index.ts) — re-export `decisionHistoryRepository`.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `DecisionHistoryPreview` toegevoegd.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - Roept `buildDecisionSnapshots(dashboardActions, baseCurrency)` + `decisionHistoryRepository.upsertMany` + `reapExpired` + `listForUser` aan.
+  - Bouwt `decisionHistorySummary` via `summarizeDecisionHistory`.
+  - Rendert nieuwe `<Section title="Adviesgeschiedenis">` met `<DecisionHistoryPreview>` direct na de cockpit-layout.
+  - Persistence is **best-effort**: try/catch om de cockpit niet te breken bij DB-fouten.
+
+### Design-regels
+- **Append-only.** Oorspronkelijke advies-payload (`actionType`, `symbol`, `shares`, `amount`, `title`, `rationale`, `confidence`) wordt nooit gemuteerd. Alleen `status`, `statusUpdatedAt` en `statusNote` zijn beweegbaar.
+- **Idempotent op uur-bucket.** Repeated dashboard-loads in hetzelfde uur produceren één record per advies. `expiresAt` mag wel verlengd worden bij herhaalde aanwezigheid.
+- **State-machine.** Alleen `SUGGESTED` mag naar een eindstatus; `MARKED_DONE` / `IGNORED` / `EXPIRED` zijn definitief — geen ondoing van geschiedenis.
+- **Geen broker-koppeling.** "Gedaan" is een self-report; UI zegt dat letterlijk.
+- **Pure businesslogica.** Builder + summary zijn pure functies; UI rekent niets.
+- **Reap-on-load.** `reapExpired` draait bij elke dashboard-load — geen aparte cron nodig om houdbaarheid te verzekeren.
+
+### Aannassen
+- **TTL = 14 dagen.** Default voor `expiresAt`; configureerbaar via `ttlDays` op de builder. Lang genoeg om wekelijks te reviewen, kort genoeg om geen ruis te accumuleren.
+- **Uur-bucket voorkomt duplicaten.** Als een gebruiker meerdere keren per uur het dashboard refresht, slaan we niet steeds nieuwe rijen op.
+- **DO_NOTHING wordt niet gelogd.** Alleen actie-georiënteerde adviezen (RISK_REDUCTION / BUY_OPPORTUNITY / HOLD_CASH) zijn evaluatiewaardig.
+- **Note ≤ 500 chars.** API trimt automatisch — beschermt DB en UI tegen overflow.
+- **Geen DB-migratie in deze diff.** Alleen schema + Prisma client zijn gegenereerd. Live deploys vragen `prisma migrate dev --name decision_history` of `prisma db push` voordat de tabel queryable is.
+
+### Validatie
+- `npm test` → **1073/1073 tests groen** (+19 decision-history).
+- `npx tsc --noEmit` → schoon.
+- `npx prisma generate` → succes.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Decision Cockpit UX polish
+
+### UX changelog
+- **Eén bron van waarheid voor status-kleuren.** Nieuwe module
+  [`src/components/dashboard/decision-cockpit/tone.ts`](src/components/dashboard/decision-cockpit/tone.ts)
+  exporteert `TONE_STYLES` voor `good / neutral / warning / critical`.
+  StatusMetricCard gebruikt 'm nu canoniek; volgende iteratie kan
+  Risk/Opportunity/Scenario/BusinessQuality-kaarten op dezelfde palette
+  brengen zonder copy-paste.
+- **Microcopy ontjargon-d.** Status-snapshot vervangt "TE 0.5% · 12m"
+  door "Afwijking ±0.5% · 12 maanden data"; "presteert beter dan" wordt
+  "loopt voor op". AllocationDecisionPreview vervangt "HHI" door
+  "Spreiding" met tooltip-uitleg ("0 = perfect verdeeld, 1 = alles in
+  één positie"). Section-descriptions hertaald: "Verdieping" /
+  "Bedrijfskwaliteit" / "Netto rendement" / "Historiek" — Nederlands,
+  vraag-stijl ("Wat houd je over na belasting?").
+- **Max 3 items per blok afgedwongen.** RiskActionPanel en
+  OpportunityPanel knippen na 3 met een "+ N meer — bekijk alles in
+  /pad"-hint. BusinessQualityBlock secties (langetermijn-houders en
+  speculatieve waarschuwingen) waren 6 — nu 3 + overflow-hint.
+- **Deep-link copy uniform.** Alle panel-headers (risico's, kansen,
+  bedrijfskwaliteit) gebruiken nu "Bekijk alles" met `ArrowRight`-icoon
+  in plaats van "Naar /risico" / "Naar /kansen" / "Naar /portfolio" —
+  intent-driven copy in plaats van pad-naam.
+- **Empty states zachter.** "Geen actieve risico-flags. Risk-, rebalance-,
+  policy- en data-quality-engine zien geen drempels overschreden." →
+  "Geen risico-flags actief — alle engines zien de portefeuille binnen
+  profielgrenzen." Lengte gehalveerd, jargon weg.
+- **Loading state spiegelt cockpit.** [`loading.tsx`](src/app/(app)/dashboard/loading.tsx)
+  herschreven om de echte Decision Cockpit-layout te volgen:
+  PrimaryActionBar (3 tegels) → 5-status-tegelrij → 2 col risk/opps → 1+1
+  allocatie/scenario → AI Explain. Voorkomt content-shift bij hydratie.
+- **Error boundary toegevoegd.** Nieuwe [`error.tsx`](src/app/(app)/dashboard/error.tsx)
+  vangt onverwachte engine-fouten op met een "Opnieuw proberen"-knop +
+  digest-id. Cockpit kan niet meer de hele app crashen.
+- **Layout spacing aangescherpt.** PrimaryAction + status zijn `gap-3`
+  (compacte besluit-zone), 24px tussen hoofdsecties (rust). AI Explain
+  Panel krijgt een subtiele `border-t` zodat het zichtbaar lager in de
+  hiërarchie staat dan de besluit-rij.
+- **Header-microcopy compacter.** "Wat moet je nu doen, waarom en wat is
+  de impact." → "Wat doe je nu, waarom, en wat is de impact?" — vraag
+  prikkelt scannen.
+
+### Resterende UX-risico's (niet opgelost in deze polish)
+- **Tone-palette nog niet overal geadopteerd.** Risk/Opportunity/
+  Scenario/BusinessQuality-kaarten gebruiken eigen kleurmappings; bij de
+  volgende refactor per kaart switchen naar `TONE_STYLES` voorkomt
+  drift bij toekomstige tweaks.
+- **Sticky boven-zone op kleinere desktops.** Onder ~1280px kan de
+  sticky primary-action + status veel viewport-hoogte vragen; bij
+  volgend onderzoek meten of we de status-rij collapse-baar maken
+  zodat alleen PrimaryAction sticky blijft.
+- **Chart-loze AllocationDecisionPreview.** Toont nu progress-bars als
+  proxy; een echte donut/treemap zou impact beter visualiseren maar
+  vergt een client-component + chart-lib (recharts/visx).
+- **AI Explain Panel rendert pre-computed tekst.** "Leg dit advies
+  uit"-knop is nu een collapse-toggle; bij toekomstige LLM-swap moet
+  de knop een fetch naar `/api/ai/explain` triggeren met loading-state
+  en numeric-claim-validatie zichtbaar in UI bij rejection.
+- **Microcopy rondom "Stuks" / "Aandelen".** Eenheid is data-driven
+  (assetClass), maar bij synthetische ETF-tickers zonder classifier-
+  match val we terug op "stuks". Bij twijfel kan de UI dit als
+  warning labelen.
+- **Geen `Skeleton`-states binnen kaarten.** loading.tsx is een
+  pagina-skelet; partial loading (bv. benchmark wel, business-quality
+  niet) toont nu cliff-edge empty-state. Streaming SSR met
+  `<Suspense>`-boundaries per kaart is een toekomstige verbetering.
+- **Mobile sticky uit, geen alternatieve top-bar.** Op mobile scrolt
+  de PrimaryAction weg; een bottom sheet of compacte sticky-pill is
+  nog niet geïmplementeerd.
+- **Geen toegankelijkheidsaudit.** ARIA-labels zijn op kaartniveau
+  toegevoegd; volledige screen-reader walk-through met live regions
+  voor confidence-warnings staat nog open.
+
+### Changed (productiecode)
+- [`src/components/dashboard/decision-cockpit/tone.ts`](src/components/dashboard/decision-cockpit/tone.ts) — **NEW**: gedeelde `CockpitTone` + `TONE_STYLES` palette (good/neutral/warning/critical).
+- [`src/components/dashboard/decision-cockpit/status-metric-card.tsx`](src/components/dashboard/decision-cockpit/status-metric-card.tsx) — gebruikt `TONE_STYLES` via `TIER_TO_TONE`-map; lokale `TIER_STYLES` verwijderd.
+- [`src/lib/analytics/dashboard/status-snapshot.ts`](src/lib/analytics/dashboard/status-snapshot.ts) — microcopy: "TE … · …m" → "Afwijking ±… · … maanden data"; "presteert beter dan" → "loopt voor op".
+- [`src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx`](src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx) — "HHI" → "Spreiding" met tooltip-hint via uitgebreide `Stat`-helper.
+- [`src/components/dashboard/decision-cockpit/business-quality-block.tsx`](src/components/dashboard/decision-cockpit/business-quality-block.tsx) — long-term + speculatieve secties knippen op 3 met "+N meer"-hint. Header-link "Bekijk alles".
+- [`src/components/dashboard/decision-cockpit/risk-action-panel.tsx`](src/components/dashboard/decision-cockpit/risk-action-panel.tsx) — `VISIBLE = 3` constant, overflow-hint, header-copy hertaald, empty state compacter.
+- [`src/components/dashboard/decision-cockpit/opportunity-panel.tsx`](src/components/dashboard/decision-cockpit/opportunity-panel.tsx) — idem (max 3 + overflow-hint), copy hertaald.
+- [`src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx`](src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx) — sticky-zone gap-3 (compact); AI Explain met `border-t`; aria-labels gestandaardiseerd; commentaar bijgewerkt.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — Section-descriptions hertaald (Verdieping / Bedrijfskwaliteit / Netto rendement / Historiek); header-microcopy compacter.
+- [`src/app/(app)/dashboard/loading.tsx`](src/app/(app)/dashboard/loading.tsx) — herschreven om Decision Cockpit-layout te spiegelen.
+- [`src/app/(app)/dashboard/error.tsx`](src/app/(app)/dashboard/error.tsx) — **NEW**: error-boundary met retry + digest.
+
+### Validatie
+- `npm test` → **1054/1054 tests groen** (geen test-breakage door UX-polish).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · AI Explain Panel onderaan cockpit (dashboard-explainer + /api/ai/explain extension)
+
+### Added
+- [`src/lib/ai/dashboard-explainer.ts`](src/lib/ai/dashboard-explainer.ts) — pure deterministische renderer `explainDashboardSummary`. Levert `DashboardSummaryExplanation` met:
+  - `headline` (één-zin samenvatting van top-actie + regime + #risico's + #kansen)
+  - `whyTopActions` (max 3 bullets — citeert title + urgency + confidence + reason letterlijk uit dashboard-actions)
+  - `uncertainties` (lage-confidence acties, lage-confidence opportunities met reden, risk-actions met `insufficientData=true`, externe `dataQualityNotes`)
+  - `improvementSuggestions` (concrete data-vragen aan gebruiker — koersdata aanvullen, fundamentals toevoegen, regime-bron controleren, holding-velden aanvullen)
+  - `confidenceTier` (low/medium/high) + `confidence` (0..1) + `sources[]` + `disclaimer`
+  - **Geen LLM-call.** Voor toekomstige LLM-swap zijn er `buildDashboardSummaryPrompt` (system + user payload met strikte guardrails: "verzin geen nieuwe scores", "geef geen koop-/verkoopadvies", "benoem onzekerheid expliciet als confidence < 50%") en `validateDashboardSummary` (numeric-claim cross-check tegen input-context).
+- [`src/lib/ai/dashboard-explainer.test.ts`](src/lib/ai/dashboard-explainer.test.ts) — **17 tests**: headline + drie secties, citeert title/reason letterlijk, lage-confidence acties + opportunities + insufficient-data risks → uncertainties, improvement-suggestions per missend data-aspect, confidenceTier-mapping, sources verzamelen, disclaimer, lege input fallback, dataQualityNotes pass-through, determinisme, system-prompt verbiedt nieuwe cijfers/koop-verkoopbeslissingen, user-payload bevat context-JSON, validator accepteert geciteerde cijfers en rejecteert verzonnen cijfers.
+- API-endpoint `/api/ai/explain` accepteert nu `useCase: "dashboard_summary"` met `topActions`, `topRisks`, `topOpportunities`, `regime`, `dataQualityNotes`, `overallConfidence`. Optioneel `includePrompt: true` retourneert ook de prompt-payload voor LLM-swap.
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/ai-explain-panel.tsx`](src/components/dashboard/decision-cockpit/ai-explain-panel.tsx) — **volledig herschreven** als client component. Nieuwe prop `explanation: DashboardSummaryExplanation` (was `data: AiExplainVM`). Collapsed by default met "Leg dit advies uit"-knop (Wand2 + chevron). Bij expand: drie secties (Waarom deze acties bovenaan staan / Onzekerheden / Wat kan ik aanvullen?). Confidence-tier kleurt de border (high/medium/low). Lage-confidence-warning naast de knop. Disclaimer onderaan: "AI legt alleen uit wat de engines hebben berekend — geen nieuwe scores, geen koop-/verkoopadvies."
+- [`src/app/api/ai/explain/route.ts`](src/app/api/ai/explain/route.ts) — `dashboard_summary` use-case toegevoegd aan `VALID_USE_CASES` met tolerant array-validatie + nieuwe branch die `explainDashboardSummary` aanroept en optioneel de prompt teruggeeft.
+- [`src/lib/ai/index.ts`](src/lib/ai/index.ts) — re-export van `explainDashboardSummary`, `buildDashboardSummaryPrompt`, `validateDashboardSummary`, `DASHBOARD_SUMMARY_SYSTEM_PROMPT` + types.
+- [`src/components/dashboard/decision-cockpit/view-model.ts`](src/components/dashboard/decision-cockpit/view-model.ts) — `AiExplainVM` interface, `buildAiExplain` sub-builder, `labelForAdvice` helper en `clamp01` helper verwijderd; `CockpitViewModel.aiExplain` weg. Het AI Explain Panel is nu een onafhankelijke pipeline (dashboard-explainer).
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — obsolete `AiExplainVM` export verwijderd.
+- [`src/components/dashboard/decision-cockpit/view-model.test.ts`](src/components/dashboard/decision-cockpit/view-model.test.ts) — verwijderde test op `vm.aiExplain.bullets`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - Bouwt `dataQualityNotes` uit policy- en quality-reports (sector-coverage < 90%, critical policy-violations).
+  - Bouwt `overallExplainerConfidence` als gemiddelde van top-action + risk-action confidence.
+  - Roept `explainDashboardSummary({ topActions: dashboardActions, topRisks: riskActions, topOpportunities: dashboardOpportunities, regime, dataQualityNotes, overallConfidence })` aan en geeft `explanation={dashboardExplanation}` door aan `<AiExplainPanel>`.
+
+### Design-regels
+- **AI legt alleen uit, niets meer.** De renderer kent geen pad om scores, aantallen of acties te verzinnen — alle cijfers komen letterlijk uit de input. Voor LLM-swap geldt dezelfde regel: `validateDashboardSummary` rejected elk numeric token dat niet in de context-JSON voorkomt.
+- **Onzekerheid expliciet.** Acties met confidence < 50%, opportunities met `lowConfidence=true`, risks met `insufficientData=true` en externe `dataQualityNotes` worden allemaal als bullets in de "Onzekerheden"-sectie getoond. UI-banner bij confidence-tier `low`.
+- **Improvement-suggesties zijn concreet.** Geen "verbeter de data" — wel "vul fundamentals voor ZZZ toe", "controleer regime-fetch", "vul ontbrekende holding-velden via portefeuille-import".
+- **Collapsed by default — geen chatbot.** UI is een passieve uitleg-knop, geen vrije-tekst chat. Cockpit blijft scanbaar.
+- **API-route hergebruik.** Nieuwe use-case op het bestaande `/api/ai/explain`-endpoint; consistent met action-decision en holding_score routing.
+- **Pure businesslogica.** Page bouwt alleen de input-payload uit bestaande engine-output; alle copy komt uit de explainer.
+
+### Aannames
+- **Lage-confidence drempel = 0.5.** Onder die waarde wordt een actie/opportunity expliciet als onzekerheid genoemd; consistent met `prioritizeOpportunities`.
+- **OverallConfidence = gemiddelde van top-actions + top-risks confidence.** Heuristiek; we tonen het tier-label (high/medium/low) zodat de gebruiker kan zien hoe sterk de cockpit-conclusies onderbouwd zijn.
+- **Sector-coverage drempel voor data-quality-note = ≥ 10% onbekend.** Onder die fractie is het ruis; daarboven beïnvloedt het risk- en factor-output materieel.
+- **DataQualityNotes worden verbatim doorgegeven** — page voegt eigen notes toe; explainer bouwt geen eigen interpretatie.
+
+### Validatie
+- `npm test` → **1054/1054 tests groen** (+17 dashboard-explainer).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · "Wat als…" scenario-blok op dashboard (ScenarioSnapshot + scenario-snapshot aggregator)
+
+### Added
+- [`src/lib/analytics/dashboard/scenario-snapshot.ts`](src/lib/analytics/dashboard/scenario-snapshot.ts) — pure aggregator `buildScenarioSnapshot` boven op de bestaande macro/scenario engine. Levert `DashboardScenarioSnapshot` met **maximaal 4 compacte kaarten**:
+  - 1. **Rente +2%** (RATES_UP_2) · 2. **Markt -20%** (MARKET_CRASH) · 3. **USD +10%** (USD_UP_10) · 4. **Defensief regime verslechtert** (DEFENSIVE_REGIME_WORSENS — afgeleid van RECESSION-uitkomst, gedempt op `regime.stance === "DEFENSIVE"`).
+  - Per kaart: `scenarioName` (NL), `description`, `estimatedImpactAmount` (base currency), `estimatedImpactPercent`, `mainDrivers` (max 3 ticker-strings uit `biggestLosers`), `suggestedPreparation` (NL imperatief), `tone` ("negative"/"neutral"/"positive"), `confidence` (0..1), `indicative` (true bij engine-warnings of derived card), `dataWarnings`.
+  - **Preparation-regels (eerste match wint):**
+    - USD-scenario + foreign-currency-weight ≥ 60% → "Overweeg een EUR-hedged variant…"
+    - Severe loss (≤ -10%) + DEFENSIVE regime óf CONSERVATIVE riskTolerance → "Verlaag risico-blootstelling…"
+    - Moderate loss (≤ -5%) → "Controleer cash-buffer en hedge-mogelijkheden…"
+    - DEFENSIVE_REGIME_WORSENS → "Houd defensieve allocatie aan…"
+    - Default → "Geen voorbereiding nodig — portefeuille robuust onder dit scenario."
+  - **Defensive-regime card vervangt RECESSION** (zelfde sectorshocks; voorkomt dubbele dekking en max-4 overflow). Impact wordt 30% gedempt wanneer regime al defensief is.
+  - **Confidence-formule:** `0.6 + (defensiveStrength/250) − warnings*0.1`, geclamped op [0,1]. `indicative=true` markeert kaarten waarvan engine-warnings de cijfers minder hard maken.
+  - **Sortering:** zwaarste impact (meest negatief) eerst.
+- [`src/lib/analytics/dashboard/scenario-snapshot.test.ts`](src/lib/analytics/dashboard/scenario-snapshot.test.ts) — **16 tests**: max-4 default + custom max, alle 4 verwachte scenario-id's aanwezig, sortering op zwaarste impact, USD + hoge FX → hedge-preparation, severe loss + DEFENSIVE/CONSERVATIVE → "verlaag risico", moderate loss → cash-buffer, robuust → "geen voorbereiding", defensief-regime kaart heeft eigen NL-naam + dempt impact, mainDrivers ≤ 3, tone-mapping, indicative + relatieve confidence-decay bij warnings, lege macro-report → lege output, confidence ∈ [0,1], determinisme.
+- [`src/components/dashboard/decision-cockpit/scenario-impact-card.tsx`](src/components/dashboard/decision-cockpit/scenario-impact-card.tsx) — pure presentational kaart per `DashboardScenarioCard`. Toont impact in % + €, top-3 driver-pills, NL-voorbereiding-blok met Compass-icoon, indicative-marker bij data-onzekerheid en tooltip met description + dataWarnings ("Schatting op basis van sector-shocks; geen exacte voorspelling.").
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/scenario-snapshot.tsx`](src/components/dashboard/decision-cockpit/scenario-snapshot.tsx) — **volledig herschreven** als compact "Wat als…"-blok. Nieuwe prop `snapshot: DashboardScenarioSnapshot` (was `data: ScenarioSnapshotVM`). 2-koloms grid met max-4 `<ScenarioImpactCard>`-kaarten, footer-banner bij `hasIndicativeCards=true`.
+- [`src/lib/analytics/dashboard/index.ts`](src/lib/analytics/dashboard/index.ts) — barrel re-export van `buildScenarioSnapshot` + types.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `ScenarioImpactCard` toegevoegd; obsolete `ScenarioSnapshotVM` export verwijderd.
+- [`src/components/dashboard/decision-cockpit/view-model.ts`](src/components/dashboard/decision-cockpit/view-model.ts) — `ScenarioSnapshotVM` interface en `buildScenario` sub-builder verwijderd; `CockpitViewModel.scenario` weg. Het scenario-blok is nu een onafhankelijke pipeline (`buildScenarioSnapshot`).
+- [`src/components/dashboard/decision-cockpit/view-model.test.ts`](src/components/dashboard/decision-cockpit/view-model.test.ts) — verwijderde tests op `vm.scenario.worstScenario`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — roept `buildScenarioSnapshot({ macroReport, regime, riskTolerance, foreignCurrencyWeight })` aan en geeft `snapshot={scenarioSnapshot}` door aan `<ScenarioSnapshot>`.
+
+### Design-regels
+- **Max 4 kaarten — focus op 4 macro-vragen.** RATES_UP_2 / MARKET_CRASH / USD_UP_10 / DEFENSIVE_REGIME_WORSENS. RECESSION zit conceptueel in de defensieve-regime kaart en wordt automatisch gedrop als die er is.
+- **Cijfers eerst, copy compact.** Impact in % en € prominent rechtsboven; geen lange macro-uitleg op de kaart zelf — die zit in de tooltip.
+- **Voorbereiding nooit "koop nu".** suggestedPreparation is altijd een controle, voorbereidings- of de-risking-actie (hedge, cash, structurele afbouw).
+- **Indicatief markeren.** Engine-warnings en derived cards zijn altijd `indicative=true` met amber-marker — geen exacte voorspelling.
+- **Pure businesslogica.** UI rekent niets; alle preparation-zinnen, drivers en confidence-cijfers komen uit de aggregator.
+- **Engine canoniek.** De macro-engine is de enige bron van shocks; de aggregator combineert bestaande output met portfolio-context (foreign-currency-weight, regime, risk-tolerance).
+
+### Aannames
+- **Defensief-regime kaart leunt op RECESSION-cijfers.** Dezelfde sectorshocks dekken het verergeren-scenario; we voorkomen daarmee een nieuw rekenmodel. Bij DEFENSIVE-stance dempen we 30% (de portefeuille is dan typisch al voorzichtiger gepositioneerd).
+- **Severe loss = -10%, moderate = -5%.** Bewuste drempels voor preparation-tekst; consistent met de risk-action mapper.
+- **Hoge FX-exposure = ≥ 60%** (zelfde drempel als de risk-engine `foreignCurrencyExposure.high`); triggert de USD-hedge-preparation.
+- **Recession wordt automatisch gedrop** wanneer de defensieve-regime kaart aanwezig is. Wanneer het macro-rapport ooit RECESSION mist, blijft de defensieve-regime kaart leeg en wordt 'ie geskipt.
+
+### Validatie
+- `npm test` → **1037/1037 tests groen** (+16 scenario-snapshot).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Buffett-laag op dashboard (BusinessQualityBlock + business-quality-summary)
+
+### Added
+- [`src/lib/analytics/dashboard/business-quality-summary.ts`](src/lib/analytics/dashboard/business-quality-summary.ts) — pure aggregator `summarizeBusinessQuality` boven op de bestaande Business Quality Layer. Levert een `BusinessQualitySummary` met vier buckets:
+  - `strongestBusinesses` — top-N op score, alleen bij confidence ≥ 0.5 én score ≥ 60 (of label COMPOUNDER).
+  - `weakestBusinesses` — bottom-N met score ≤ 50.
+  - `longTermHoldCandidates` — engine-canonical `canHoldLongTerm` flag, gesorteerd op weight desc (waar de gebruiker het meest in zit, eerst).
+  - `speculativeWarnings` — SPECULATIVE/CYCLICAL met materieel gewicht (≥ 5%).
+  - `overallConfidence` (weight-gewogen) en `uncoveredWeight` (fractie portfolio zonder betrouwbare data) + portfolio-brede `warnings[]`.
+  - **NL-labels** via `BusinessQualityNL`: `"Sterk bedrijf"` (COMPOUNDER), `"Cyclisch"` (CYCLICAL), `"Speculatief"` (SPECULATIVE), `"Langetermijnhouder"` (override wanneer `canHoldLongTerm=true`).
+  - **Asset-class filter:** alleen `EQUITY` en `REIT` zijn evalueerbaar. ETFs/Bonds/Crypto/Cash worden geskipt zodat we niet beweren dat een ETF "weak business quality" heeft.
+  - **topRationale per kaart:** eerste rationale-bullet uit de pillar met de hoogste sub-score (moat / earnings / capital).
+  - **Confidence-combinatie:** business-quality coverage + factor-confidence (indien aanwezig) → rekenkundig gemiddelde.
+- [`src/lib/analytics/dashboard/business-quality-summary.test.ts`](src/lib/analytics/dashboard/business-quality-summary.test.ts) — **15 tests**: COMPOUNDER → strongest, SPECULATIVE/CYCLICAL ≥ 5% → speculativeWarnings, ETF skip, weakest threshold, longTerm-sortering op weight desc, uncoveredWeight + warning, configureerbare topN, sub-5% speculative niet gewaarschuwd, labelNL-mapping (COMPOUNDER → "Sterk bedrijf" / "Langetermijnhouder"), topRationale uit hoogste pillar, REIT eligible, lege portefeuille → warning, determinisme, confidence∈[0,1].
+- [`src/components/dashboard/decision-cockpit/business-quality-card.tsx`](src/components/dashboard/decision-cockpit/business-quality-card.tsx) — pure presentational kaart per `DashboardBusinessQualityItem`. Toont ticker + naam + sector, score (XX/100), NL-label-chip met type-icoon (Sparkles/Crown/Recycle/ShieldAlert), weight in portefeuille, eerste rationale-bullet, datawaarschuwingen-tooltip en confidence-indicator wanneer < 60%.
+- [`src/components/dashboard/decision-cockpit/business-quality-block.tsx`](src/components/dashboard/decision-cockpit/business-quality-block.tsx) — Buffett-blok met header + "Naar /portfolio"-link, ConfidenceBanner bij portfolio-brede warnings, 2-koloms grid voor "Sterkste bedrijven" + "Zwakste bedrijven" en daaronder twee aparte secties voor "Langetermijnhouders (≥ 10 jaar profiel)" en "Speculatief / cyclisch (materieel gewicht)". Empty state wanneer `evaluatedCount === 0` (geen single-stock posities in portefeuille).
+
+### Changed
+- [`src/lib/analytics/dashboard/index.ts`](src/lib/analytics/dashboard/index.ts) — barrel re-export van `summarizeBusinessQuality` + types.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `BusinessQualityBlock` + `BusinessQualityCard` toegevoegd aan barrel.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - Roept `summarizeBusinessQuality({ results: businessQuality.ranked, holdings, factorScores, marketValueByTicker, totalValue })` aan en geeft het resultaat door aan `<BusinessQualityBlock>`.
+  - Vervangt de oude `<BusinessQualityCards results={...} limit={5} />`-render door de nieuwe Buffett-laag.
+  - Importeert `BusinessQualityBlock` uit de cockpit-barrel; oude `./components/business-quality-cards` import verwijderd.
+
+### Design-regels
+- **Geen AI voor scoring.** De Business Quality Layer (moat / earnings / capital) is canoniek; de summarizer doet alleen bucketing + portfolio-context (weight, confidence). AI mag later via een explain-knop bullets uitleggen, nooit nieuwe scores bedenken.
+- **Asset-class-eerlijk.** Alleen EQUITY/REIT krijgen een Buffett-label. ETFs/Bonds zijn geen "bedrijf" en horen niet in deze rij.
+- **Materiële drempel voor speculatieve waarschuwingen.** ≥ 5% portfolio-weight; daaronder zou de UI vol staan met irrelevante mini-posities.
+- **Langetermijnhouder is engine-canonical.** We gebruiken `canHoldLongTerm` zoals door `computeBusinessQuality` afgeleid (label COMPOUNDER + alle pillars ≥ 60 + confidence ≥ 0.5). Geen eigen heuristiek.
+- **Confidence is altijd zichtbaar.** Per kaart bij < 60%; portfolio-breed via een banner bij gewogen confidence < 50% of uncovered ≥ 30%.
+- **Pure presentatie.** UI berekent niets, sorteert niets opnieuw — alle ordering komt uit de summarizer.
+
+### Aannames
+- **Materiële weight-drempel = 5%.** Onder 5% wegen speculatieve positie's te weinig om dashboard-ruimte te verdienen; zichtbaar elders via /portfolio.
+- **Long-term sortering = weight desc.** De gebruiker is het meeste blootgesteld aan grote posities, dus die verdienen de eerste blik.
+- **Asset-class scope = EQUITY + REIT.** Single-stock REITs zijn dichtbij genoeg een "bedrijf" (moat, kapitaal, earnings) om dezelfde laag te krijgen.
+- **NL-label override:** wanneer `canHoldLongTerm=true` → "Langetermijnhouder" (sterker signaal dan generieke "Sterk bedrijf").
+
+### Validatie
+- `npm test` → **1022/1022 tests groen** (+15 business-quality-summary).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Action-impact simulator ("Wat gebeurt er als ik dit advies volg?")
+
+### Added
+- [`src/lib/analytics/simulation/action-impact-simulator.ts`](src/lib/analytics/simulation/action-impact-simulator.ts) — pure aggregator `simulateActionImpact`. Levert een `ActionImpactSimulation` met **vóór/na** snapshots:
+  - `currentAllocation` / `simulatedAllocation` — `byAssetClass` + `byCurrency` + `bySector` slices, `totalValue`, `cashBalance`.
+  - `currentTop5Concentration` / `simulatedTop5Concentration` — `top5Weight`, `largestPositionWeight`, `hhi`.
+  - `currentCurrencyExposure` / `simulatedCurrencyExposure` — `baseCurrencyWeight`, `foreignCurrencyWeight`, `topForeign[]`.
+  - `currentRiskScore` / `simulatedRiskScore` — composite 0..100 (40% top-5 / 25% largest / 20% HHI / 15% foreign-currency, met dezelfde thresholds als `DEFAULT_RISK_THRESHOLDS`).
+  - `impactSummary` — top-3 deltas met headline ("Top 5 concentratie daalt van 80% naar 72%"), delta-string ("−8.0%"), direction ("improve" / "worsen" / "neutral"), automatisch gesorteerd op grootste verbetering.
+  - `confidence` (0..1) + `dataWarnings[]` — daalt bij ontbrekende quantityPlan-prijs of geen koopbedrag op een action.
+  - **Mutatie-regels:** RISK_REDUCTION gebruikt letterlijk `RebalanceRecommendation.quantityPlan.amountToSell`; BUY_OPPORTUNITY pakt eerst `action.amount`, anders `allocationPlan.recommendations[].suggestedAmount`. HOLD_CASH / DO_NOTHING zijn no-ops.
+  - Onbekende-ticker-buys (allocation-plan stelt nieuwe positie voor): synthetische `HoldingValuation` met `assetClass: OTHER` en base-currency, alleen voor allocatie-aggregatie.
+  - **Geen orders, geen broker.** Pure simulatie boven op bestaande engine-output; identieke input → identieke output.
+- [`src/lib/analytics/simulation/index.ts`](src/lib/analytics/simulation/index.ts) — barrel-export voor `simulateActionImpact` + types.
+- [`src/lib/analytics/simulation/action-impact-simulator.test.ts`](src/lib/analytics/simulation/action-impact-simulator.test.ts) — **13 tests**: vóór/na snapshots zonder acties, RISK_REDUCTION verlaagt top-5 + verhoogt cash, ontbrekende quantityPlan triggert dataWarning + lagere confidence, BUY met `action.amount` én fallback op allocation-plan, HOLD/DO_NOTHING no-op, riskScore∈[0..100], `base + foreign = 1`, top-3 impactSummary, improve/worsen/neutral direction, determinisme, lege portefeuille, confidence-decay bij warnings.
+- [`src/components/dashboard/decision-cockpit/before-after-toggle.tsx`](src/components/dashboard/decision-cockpit/before-after-toggle.tsx) — pure client-component met "Nu" ↔ "Na advies" tabs en render-prop voor de actieve mode. Controlled óf uncontrolled; geen businesslogica.
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx`](src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx) — **volledig herschreven** als "Wat gebeurt er als ik dit advies volg?"-panel. Nieuwe prop `simulation: ActionImpactSimulation` (was `data: AllocationPreviewVM`). Toont:
+  - **ImpactSummary** (top-3 deltas) bovenaan met up/down/right-arrow per direction en gekleurde delta-string.
+  - **BeforeAfterToggle** met snapshot-view per mode: asset-class verdeling als compacte progress-bars (top-5), top-5 concentratie + grootste positie + HHI, valuta-exposure (base vs vreemd + top-3), risico-score met tone-icoon (TrendingUp/Down/Right) + Laag/Gemiddeld/Hoog-label.
+  - **ConfidenceWarning** (amber) bij `confidence < 0.5` of `dataWarnings.length > 0`; tooltip toont eerste warning + count rest.
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./simulation"` toegevoegd.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `BeforeAfterToggle` + type `BeforeAfterMode` toegevoegd; obsolete `AllocationPreviewVM` / `AllocationLine` exports verwijderd.
+- [`src/components/dashboard/decision-cockpit/view-model.ts`](src/components/dashboard/decision-cockpit/view-model.ts) — `AllocationPreviewVM`, `AllocationLine` interfaces en `buildAllocation` sub-builder verwijderd; `CockpitViewModel.allocation` weg. Het allocatie-paneel is nu een onafhankelijke pipeline (`simulateActionImpact`).
+- [`src/components/dashboard/decision-cockpit/view-model.test.ts`](src/components/dashboard/decision-cockpit/view-model.test.ts) — verwijderde test op `vm.allocation.hasPlan`.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — roept `simulateActionImpact({ baseCurrency, holdings, valuations, cashBalance, dashboardActions, rebalanceRecommendations, allocationPlan })` aan en geeft `simulation={actionImpact}` door aan `<AllocationDecisionPreview>`.
+
+### Design-regels
+- **Pure businesslogica.** Mutaties komen letterlijk uit Rebalance Quantity Engine + Allocation Engine + Action Engine. Simulator berekent alleen **aggregaties** (top-5, HHI, valuta) op de gemuteerde valuations.
+- **Indicatief, geen orders.** Composite risk-score is een proxy (top-5 / largest / HHI / foreign-currency); we gebruiken bewust géén historische volatility omdat die op een gemuteerde portefeuille niet pure-functioneel beschikbaar is in een synchrone preview.
+- **Confidence-eerlijk.** Acties zonder quantityPlan-prijs of zonder koopbedrag worden overgeslagen + duwen confidence omlaag. UI toont de eerste warning expliciet.
+- **Synthetische ticker-fallback.** Bij allocation-plan buys op ticker zonder Holding maakt de simulator een synthetische `HoldingValuation` (assetClass `OTHER`, base-currency); alleen voor aggregatie, niet voor display.
+- **Cash-balans clamped op 0.** Over-budget buys verlagen cash niet onder 0 — de simulatie is indicatief en mag geen onmogelijke staat tonen.
+- **Geen AI in cijfers.** ImpactSummary headlines zijn deterministische templates ("Top 5 concentratie daalt van X% naar Y%") gebouwd uit numerieke deltas.
+- **Toggle is pure UI.** "Nu" vs "Na advies" is een tab-state; alle data zit al in `ActionImpactSimulation`.
+
+### Aannames
+- **Risk-score gewichten = 40% top-5 / 25% largest / 20% HHI / 15% foreign-currency.** Komt overeen met het mentale model achter `DEFAULT_RISK_THRESHOLDS`; aanpasbaar later wanneer we vol/beta in de simulator willen meenemen.
+- **Cash gaat in base-currency-bucket.** Als de portefeuille meerdere cash-buckets heeft, vouwen we ze in deze simulator samen (analoog aan de `PortfolioSummary`-aggregator).
+- **Kleine deltas (< 0.05%) tonen als "±0%".** Voorkomt visuele ruis bij verwaarloosbare wijzigingen.
+
+### Validatie
+- `npm test` → **1007/1007 tests groen** (+13 action-impact-simulator).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Opportunity-panel op dashboard (OpportunityPanel + opportunity-prioritizer)
+
+### Added
+- [`src/lib/analytics/dashboard/opportunity-prioritizer.ts`](src/lib/analytics/dashboard/opportunity-prioritizer.ts) — pure aggregator `prioritizeOpportunities`. Combineert Opportunity Radar-output met portfolio-weights, factor-scores en marktregime tot een top-3 dashboard-shape:
+  - `symbol` / `name` / `opportunityType` / `score` / `baselineScore` / `confidence` (0..1)
+  - `reason` (uit primaire signaal-rationale; geen AI-tekst)
+  - `suggestedNextStep` ∈ {"onderzoeken", "kleine bijkoop overwegen", "wachten op target"}
+  - `riskLevel`, `expectedHorizon`, `source`, `currentWeight`, `lowConfidence`, `lowConfidenceReason`
+  - **Light-touch rerank** (score-additive, capped 0..100): UNDERWEIGHT_HIGH_CONVICTION + onderwogen positie → `+5`; DEFENSIVE regime + MOMENTUM_REVERSAL → `−5`. Opportunity Radar blijft canonieke ranking-bron; rerank duwt alleen op portfolio/regime-context.
+  - **suggestedNextStep-regels** (eerste match wint): `source = watchlist` óf `confidence < 0.5` → "wachten op target"; bestaande positie + UNDERWEIGHT_HIGH_CONVICTION → "kleine bijkoop overwegen"; bestaande positie + ETF_REBALANCE_OPPORTUNITY + confidence ≥ 0.7 → "kleine bijkoop overwegen"; default → "onderzoeken".
+  - **Low-confidence reason** wordt expliciet gevuld bij `confidence < 0.5` of bij data-warnings op de candidate ("Confidence-tier LOW...", "Datawaarschuwing: ...", "Geen factor-score beschikbaar...").
+- [`src/lib/analytics/dashboard/opportunity-prioritizer.test.ts`](src/lib/analytics/dashboard/opportunity-prioritizer.test.ts) — **20 tests**: max-3 default + custom max, output-velden, alle 3 next-step-paden, UNDERWEIGHT-rerank wint bij gelijke baseline, regime-mismatch penalty, low-confidence reason, publieke filter (defensive-bargain wordt overgeslagen), score-clamp [0..100], determinisme, currentWeight = null bij ticker buiten portfolio, factor-score afwezig → vermeld in reason, alle next-step waarden zijn NL.
+- [`src/components/dashboard/decision-cockpit/opportunity-card.tsx`](src/components/dashboard/decision-cockpit/opportunity-card.tsx) — pure presentational kaart per `DashboardOpportunity`. Toont opportunityType-label + naam + symbool + (optioneel) currentWeight, score (XX/100) + rank-pill, primaire reason-zin, drie chips: **suggestedNextStep** (kleur per actie: primary/emerald/amber, met Compass/Plus/Timer-icoon), confidence% en risk-level (gekleurd dotje + label). Bij `lowConfidence=true`: amber-warning met `lowConfidenceReason`. Tooltip toont reason + radar-baseline-score wanneer rerank actief was.
+- [`src/components/dashboard/decision-cockpit/opportunity-panel.tsx`](src/components/dashboard/decision-cockpit/opportunity-panel.tsx) — Panel met header ("Kansen op je radar — top-N kansen, onderzoek/bijkoop/wachten") + "Naar /kansen"-link voor deep dive. Empty state wanneer er geen kansen zijn. Layout-prop "stack" (default) voor de rechterkolom naast risico's; "grid" voor brede viewport-uitvoeringen.
+
+### Changed
+- [`src/lib/analytics/dashboard/index.ts`](src/lib/analytics/dashboard/index.ts) — barrel re-export van `prioritizeOpportunities` + types.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `OpportunityPanel` en `OpportunityCard` toegevoegd aan barrel.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - Bouwt `portfolioWeights` (ticker → weight) en `factorScoresMap` uit `view.valuations`.
+  - Roept `prioritizeOpportunities({ candidates: opportunityReport?.candidates, regime, portfolioWeights, factorScores })` aan.
+  - Het `opportunities`-slot van `<DecisionCockpitLayout>` toont nu `<OpportunityPanel opportunities={dashboardOpportunities} />` (was `<OpportunitiesCard data={cockpit.opportunities} />`).
+
+### Design-regels
+- **Opportunity Radar bepaalt ranking.** Rerank is bewust score-additive en klein (±5); de baseline-score blijft zichtbaar in de tooltip zodat een gebruiker kan zien waar de winst/penalty vandaan komt.
+- **Geen "koop nu".** suggestedNextStep is altijd een actie van het type onderzoek/overwegen/wachten — nooit een directe transactie-instructie.
+- **Lage confidence is expliciet.** UI toont een amber-blok met de reden zodat een gebruiker direct weet waarom 'ie voorzichtig moet zijn (zwakke signaal-tier, datawaarschuwing, geen factor-score).
+- **Pure businesslogica.** Mapper berekent geen scores zelf — confidence, riskLevel, opportunityType en horizon komen uit de bestaande `opportunity/`-adapter; rerank is één expliciete formule.
+- **AI mag alleen uitleggen.** Reason-zin = eerste rationale-bullet uit de Opportunity Radar (deterministische template). Geen LLM-output.
+- **Rechterkolom-vriendelijke layout.** Default "stack" zodat de panel naast risico's past; "grid" beschikbaar voor wijdere viewports.
+
+### Aannames
+- **UNDERWEIGHT-drempel = 5%.** Onder die fractie beschouwen we een positie als materieel onderwogen — drempel ligt onder de standaard policy-cap voor single stocks (10%) zodat ETF-rebalances ook nog onder 5% kunnen meedoen.
+- **Rerank-grootte = ±5 punten.** Klein genoeg om de Opportunity Radar-ranking grotendeels intact te laten; groot genoeg om bij gelijke baseline-scores een onderwogen positie naar boven te tillen.
+- **DEFENSIVE-regime penalty alleen op MOMENTUM_REVERSAL.** Andere offensievere types zijn al via signaal-strength geconditioneerd door de radar; we voegen geen dubbele bestraffing toe.
+- **Low-confidence cutoff = 0.5.** Onder die waarde toont de UI altijd een amber-warning en mapt de actie naar "wachten op target".
+
+### Validatie
+- `npm test` → **994/994 tests groen** (+20 opportunity-prioritizer).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Risico's actiegericht (RiskActionPanel + risk-action-mapper)
+
+### Added
+- [`src/lib/analytics/dashboard/risk-action-mapper.ts`](src/lib/analytics/dashboard/risk-action-mapper.ts) — pure aggregator `buildRiskActions`. Combineert risk-engine flags + rebalance-quantity-engine + policy-engine violations + data-quality. Levert max 3 `DashboardRiskAction`-objecten met:
+  - `riskType` ∈ {POSITION_CONCENTRATION, POLICY_VIOLATION, SECTOR_BIAS, CURRENCY_RISK, TOP5_CONCENTRATION, VOLATILITY, DRAWDOWN, LOW_DATA_QUALITY}
+  - `title` / `impact` / `recommendedAction` (NL imperatief)
+  - `sharesToSell` / `amountToSell` / `postActionWeight` — letterlijk uit `RebalanceRecommendation.quantityPlan` (geen herberekening)
+  - `severity`, `confidence` (0..1), `explanation`, `insufficientData`, `sourceEngine`
+  - Voorbeeld output: `"Rheinmetall weegt 17,5% van de portefeuille"` + `"Verkoop indicatief 1 aandeel Rheinmetall. Nieuwe weging: circa 16,9%."`
+  - Sortering: severity-rank desc → confidence desc → type-rank desc → id alfabetisch. Dedup op id (position-flag wint van policy-violation bij dezelfde ticker).
+  - ETF vs single-stock onderscheid in policy-violation impact-tekst (op basis van `instrumentType`).
+  - Data-quality-trigger alleen voor materiële (≥ 5%) major-severity holdings; `insufficientData=true`, `recommendedAction = "Vul ontbrekende velden aan…"`.
+- [`src/lib/analytics/dashboard/risk-action-mapper.test.ts`](src/lib/analytics/dashboard/risk-action-mapper.test.ts) — **20 tests**: alle riskTypes (concentration, policy-violation, sector, currency, top-5, volatility, drawdown, data-quality), aantallen uit quantity-engine, "onvoldoende data"-pad bij ontbrekende prijs, ETF/stock impact-tekst, dedup tussen position-concentration en policy-violation, severity-sortering, max-3 limiet + custom max, lege input, confidence∈[0,1], niet-lege explanation/recommendedAction/impact/title, determinisme.
+- [`src/components/dashboard/decision-cockpit/risk-action-card.tsx`](src/components/dashboard/decision-cockpit/risk-action-card.tsx) — pure presentational kaart per `DashboardRiskAction`. Severity-driven kleur + type-driven icoon (AlertOctagon/ShieldAlert/Layers/Globe/Activity/TrendingDown/Database). Toont expliciet "Wat moet ik doen?" sectie met letterlijke `Stuks` / `Bedrag` / `Nieuwe weging` als de quantity-engine concrete getallen geeft. Bij `insufficientData=true`: amber waarschuwing "Onvoldoende data — aantallen niet betrouwbaar te bepalen". Tooltip toont de volledige `explanation`.
+- [`src/components/dashboard/decision-cockpit/risk-action-panel.tsx`](src/components/dashboard/decision-cockpit/risk-action-panel.tsx) — Panel met header ("Risico's & acties — Top-N risico's, elk met een concrete actie") + "Naar /risico"-link + grid van top-3 `RiskActionCard`. Empty state wanneer geen risk-flags actief zijn.
+
+### Changed
+- [`src/lib/analytics/dashboard/index.ts`](src/lib/analytics/dashboard/index.ts) — barrel re-export voor `buildRiskActions` + `DashboardRiskAction`-types.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `RiskActionPanel` en `RiskActionCard` toegevoegd aan barrel.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx):
+  - **enrichInstruments** + **classifyInstruments** + **detectPolicyViolations** + **assessPortfolioQuality** worden nu ook op de dashboard-page uitgevoerd (eerder alleen op /portfolio).
+  - **buildRiskActions** aanroep met risk-engine, rebalance-quantity, policy-violations, data-quality.
+  - Het `risks`-slot van `<DecisionCockpitLayout>` toont nu `<RiskActionPanel actions={riskActions} />` (was `<RisksCard data={cockpit.risks} />`).
+  - User-policy `maxPositionWeight` wordt naar policy-engine doorgegeven.
+
+### Design-regels
+- **Pure businesslogica.** Alle aantallen + nieuwe wegingen komen letterlijk uit `RebalanceRecommendation.quantityPlan`. UI berekent niets; mapper berekent niets dat niet al door een engine is afgeleverd.
+- **Dedup-prioriteit.** Wanneer dezelfde ticker zowel door de risk-engine als door de policy-engine wordt geflagd, wint POSITION_CONCENTRATION (hogere type-rank) — voorkomt dubbele kaarten over dezelfde positie.
+- **ETF vs single stock.** Policy-engine classificeert al per `instrumentType`; de mapper hergebruikt dat onderscheid voor uitleg-tekst — geen heuristiek op tickernaam.
+- **"Onvoldoende data"-eerlijk.** Wanneer `quantityPlan === null` óf `currentPrice === null`: `insufficientData=true`, geen verzonnen aantallen. UI toont een amber-waarschuwing.
+- **Top 3.** `maxActions` default 3 — alleen de echte hot-spots verdienen viewport-ruimte. Configureerbaar.
+- **Severity dwingt orde af.** Critical > high > elevated > moderate > low. Daarna confidence, type-rank en id-alfabetisch voor stabiele sortering.
+- **Geen AI.** Alle title/impact/recommendedAction-zinnen zijn deterministische templates over engine-output.
+
+### Aannames
+- **Material data-quality drempel = 5% portfolio-weight.** Onder die drempel zou een data-quality-kaart de viewport vullen voor een verwaarloosbare bijdrage.
+- **Volatility-drempels:** ≥ 20% jaarvolatility = elevated; ≥ 30% = high. Drawdown-drempels: ≥ 20% = elevated; ≥ 35% = high.
+- **Confidence-mapping uit quantity-engine:** HIGH=0.9, MEDIUM=0.7, LOW=0.45. Wanneer er geen quantityPlan is: 0.4 (zichtbaar laag, dwingt verificatie).
+- **`enrichInstruments` faalbestendig.** `.catch(() => new Map())` zorgt dat het dashboard ook zonder Yahoo-fetch blijft draaien — policy-violations vallen dan terug op UNKNOWN classification + LOW confidence.
+
+### Validatie
+- `npm test` → **974/974 tests groen** (+20 risk-action-mapper, eerdere flake in opportunity/engine recovered).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Compacte 5-kaart status-snapshot
+
+### Added
+- [`src/lib/analytics/dashboard/status-snapshot.ts`](src/lib/analytics/dashboard/status-snapshot.ts) — pure aggregator `buildPortfolioStatusSnapshot`. Levert exact 5 `StatusMetric`-kaarten in vaste volgorde:
+  1. **TOTAL_VALUE** — totale portefeuillewaarde + P&L%/€-subregel; tier op basis van `unrealizedPnlPct` (≥ +5% GOOD, ≤ -15% CRITICAL, ≤ -5% WARNING, anders NEUTRAL).
+  2. **HEALTH_SCORE** — letter + score uit `PortfolioHealthSummary`; A/B → GOOD, C → NEUTRAL, D → WARNING, F → CRITICAL.
+  3. **VS_BENCHMARK** — alpha vs. benchmark + tracking-error/maanden-subregel; tier ≥ +2% GOOD, ≥ -2% NEUTRAL, ≥ -5% WARNING, lager CRITICAL.
+  4. **NET_RETURN** — netto rendement uit `TaxReport` met bruto + tax-impact; tier ≥ 4% GOOD, ≥ 0% NEUTRAL, ≥ -5% WARNING, lager CRITICAL.
+  5. **MARKET_REGIME** — stance + score-subregel; tier combineert `MarketRegimeStance` met `risk.overallSeverity` (DEFENSIVE = WARNING/CRITICAL, RISK_ON+laag risico = GOOD).
+  - Bij ontbrekende data → status NEUTRAL met `missingDataReason` ("Geen benchmark-data opgehaald.", "Tax-engine output ontbreekt.", "Geen recente regime-data.") en value `"—"`.
+  - `confidence` (0..1) schaalt mee met data-coverage (bv. benchmark scaled op `monthsObserved/36`).
+- [`src/lib/analytics/dashboard/index.ts`](src/lib/analytics/dashboard/index.ts) — barrel-export voor builder + types.
+- [`src/lib/analytics/dashboard/status-snapshot.test.ts`](src/lib/analytics/dashboard/status-snapshot.test.ts) — **28 tests**: vaste 5-kaart volgorde, tier-mapping per kaart, missing-data fallbacks, confidence-clamping op [0,1], niet-lege explanations, determinisme.
+- [`src/components/dashboard/decision-cockpit/status-metric-card.tsx`](src/components/dashboard/decision-cockpit/status-metric-card.tsx) — pure presentational kaart per `StatusMetric`. Tier-driven kleur + icoon (GOOD emerald/CheckCircle2, NEUTRAL neutral/CircleDot, WARNING amber/AlertTriangle, CRITICAL destructive/ShieldAlert). Tooltip rond de kaart toont `explanation` + `missingDataReason`. Confidence-indicator alleen wanneer `< 0.6`. "Nog niet beschikbaar"-tekst bij missende data.
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/portfolio-status-snapshot.tsx`](src/components/dashboard/decision-cockpit/portfolio-status-snapshot.tsx) — **volledig herschreven**. Nieuwe prop `snapshot: PortfolioStatusSnapshot` (was `data: PortfolioStatusVM`). Rendert de 5 kaarten in een responsive grid: 2 kolommen mobile / 3 tablet / 5 desktop. Geen grafieken, geen rekenwerk in UI.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `StatusMetricCard` toegevoegd aan barrel; obsolete `PortfolioStatusVM`-export verwijderd.
+- [`src/components/dashboard/decision-cockpit/view-model.ts`](src/components/dashboard/decision-cockpit/view-model.ts) — `PortfolioStatusVM` interface en `buildStatus` sub-builder verwijderd; `CockpitViewModel.status` weg. De compacte statusrij is nu een onafhankelijke pipeline (`buildPortfolioStatusSnapshot`) en hoort niet meer in de cockpit-VM.
+- [`src/components/dashboard/decision-cockpit/view-model.test.ts`](src/components/dashboard/decision-cockpit/view-model.test.ts) — verwijderde test voor `vm.status.cashSharePct` (gedekt door `status-snapshot.test.ts`).
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — `export * from "./dashboard"` toegevoegd voor toplevel-import.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — roept `buildPortfolioStatusSnapshot({summary, health, risk, benchmark, tax, regime})` aan en geeft `snapshot={statusSnapshot}` door aan `<PortfolioStatusSnapshot>`.
+
+### Design-regels
+- **Compactness eerst.** Eén regel per kaart, max 2 op kleine schermen, geen sparklines of charts in deze rij.
+- **Scanbaarheid via tier-kleur.** Kleur drukt status uit, niet de waarde zelf — een rood "+ 0.3%"-alpha scant verkeerd; alpha-tier is daarom strikt NEUTRAL tussen ±2%.
+- **Missing data = NEUTRAL + reden.** Nooit een rood-of-groen oordeel maken op afwezige data; tier blijft NEUTRAL en de reden is zichtbaar in de tooltip.
+- **Confidence is optioneel signaal.** Alleen tonen wanneer < 60%, anders ruis.
+- **Pure functie, geen I/O.** Alle 5 kaarten komen uit één synchroon-aanroepbare aggregator over al-opgehaalde analytics-output.
+
+### Aannames
+- **TaxReport-confidence wordt gerespecteerd.** We tonen die direct (geclamped op [0,1]); we herberekenen 'm niet.
+- **Benchmark-confidence schaalt met `monthsObserved/36`** met een floor van 0.4 — ≥ 36 maanden = volledig vertrouwen.
+- **Defensief regime alleen al = WARNING.** Ook bij laag risico — de stance zelf vertelt dat de markt nu voorzichtig is.
+
+### Validatie
+- `npm test` → **953/954 tests groen** (+28 status-snapshot, -1 obsolete vm.status-test). Eén onverwachte fail: pre-existing flake in `opportunity/engine.test.ts` (Date.now()-drift tussen twee opeenvolgende calls); slaagt op rerun. Niet veroorzaakt door deze wijziging.
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Primary Action polish (assetClass nouns, policy cap, risk-averse priority)
+
+### Changed
+- [`src/types/profile.ts`](src/types/profile.ts) — `PolicySettings.maxCashShare` toegevoegd (fractie 0..1, optioneel) voor user-configureerbare HOLD_CASH-drempel.
+- [`src/lib/analytics/actions/dashboard-actions.ts`](src/lib/analytics/actions/dashboard-actions.ts):
+  - **assetClass-driven unit-noun**: nieuwe `assetClassByTicker?: Map<string, AssetClass>` input. `unitNounFor(assetClass, shares)` mapt EQUITY/REIT → "aandeel/aandelen", ETF → "unit/units", BOND → "obligatie/obligaties", CRYPTO → "coin/coins", CASH/COMMODITY/OTHER → "stuks". Singular via `shares === 1`. Vervangt de oude ticker-suffix-heuristiek.
+  - **`policy.maxCashShare`** vervangt de hardcoded 25%-drempel voor HOLD_CASH; default 0.25 bij ontbrekende/invalid waarde. Description vermeldt nu expliciet de drempel ("cash op 30% (boven jouw drempel 15%)").
+  - **Risk-averse type-prioriteit**: nieuwe `riskTolerance?: RiskTolerance` input. Bij `CONSERVATIVE` worden MEDIUM-urgency RISK-acties gepromoveerd naar HIGH **én** krijgt RISK_REDUCTION een type-rank-bonus (6 vs 3, vs default 4 vs 3) zodat 'ie zelfs bij gelijke urgency + confidence vóór BUY_OPPORTUNITY komt. LOW-urgency wordt niet ongewenst opgewerkt.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — bouwt `assetClassByTicker` uit `portfolio.holdings`, geeft `policy` + `riskTolerance` uit `context.profile` mee.
+- [`src/lib/analytics/actions/dashboard-actions.test.ts`](src/lib/analytics/actions/dashboard-actions.test.ts) — **+9 tests** (totaal 25): unit-noun per assetClass (4), policy.maxCashShare trigger/suppress (2), CONSERVATIVE elevation + tie-break + BALANCED non-elevation (3).
+
+### Design-regels
+- **Unit-noun is data-driven**: voorkomt false-positives waarbij een normaal aandeel met `.AS`-suffix verkeerdelijk "units" kreeg.
+- **Pluralisatie** op `shares === 1`.
+- **Policy-cap met sane defaults**: invalid/missing → 0.25; clamp op (0, 1].
+- **CONSERVATIVE-elevation alleen voor MEDIUM**: LOW blijft LOW (geen artificial paniek).
+- **Type-rank-gap +2** voor CONSERVATIVE zodat RISK ook bij confidence-tie wint.
+
+### Aannames
+- **Unit-noun mapping is server-side**: UI krijgt al-geformatteerde strings.
+- **`maxCashShare ≤ 0`** wordt genegeerd (default 0.25 actief).
+- **GROWTH / AGGRESSIVE risk-tolerance** krijgen géén tegengestelde tilt (geen BUY-elevation). Vraag: wil je dat ik dit later toevoeg?
+
+### Validatie
+- `npm test` → **927/927 tests groen** (+9 dashboard-actions).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+## [Unreleased] - 2026-04-27 · Dominante Primary Action Bar (max 3 acties)
+
+### Added
+- [`src/lib/analytics/actions/dashboard-actions.ts`](src/lib/analytics/actions/dashboard-actions.ts) — pure aggregator `buildDashboardPrimaryActions`. Levert maximaal 3 zeer concrete `DashboardAction`-objecten:
+  - **RISK_REDUCTION** ("Verkoop 1 aandeel Rheinmetall", "Bouw Vanguard S&P 500 met 4 units af") — uit `ActionPlan.positions` waar action ∈ {SELL, TRIM}, verrijkt met `RebalanceRecommendation.quantityPlan` voor letterlijke aantallen + reden.
+  - **BUY_OPPORTUNITY** ("Koop deze maand €300 ASML") — uit action-engine BUY-paden of allocation-plan recommendations. Dedup per ticker; action-engine wint van allocation-plan.
+  - **HOLD_CASH** ("Houd cash aan: 30% van portefeuille als buffer") — wanneer cash ≥ 25% én (regime DEFENSIVE óf risk high/critical).
+  - **DO_NOTHING** ("Doe niets: marktregime defensief en risico al hoog") — fallback wanneer geen andere triggers.
+  - Sortering: urgency desc → confidence desc → type-prioriteit (RISK > BUY > HOLD_CASH > DO_NOTHING) → id alfabetisch. Capaciteit 3 (configureerbaar via `maxActions`).
+- [`src/lib/analytics/actions/dashboard-actions.test.ts`](src/lib/analytics/actions/dashboard-actions.test.ts) — **16 nieuwe tests**: 4 actie-types met letterlijke aantallen + symbolen, dedup tussen action- en allocation-engine, cash-share-drempel, sortering, max-3 limiet, custom max, determinisme + stabiele id's.
+- [`src/components/dashboard/decision-cockpit/action-card.tsx`](src/components/dashboard/decision-cockpit/action-card.tsx) — pure presentationele card per actie. Toont type-label ("Risico verlagen" / "Kans benutten" / "Cash aanhouden" / "Niets doen"), urgency-badge, optionele rank-label ("#1/3"), aantallen + bedrag + bron-engine. Lage-confidence (< 60%) krijgt amber-warning. Type-tone: destructive (RISK), primary (BUY), amber (HOLD_CASH), neutral (DO_NOTHING).
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/primary-action-bar.tsx`](src/components/dashboard/decision-cockpit/primary-action-bar.tsx) — **volledig herschreven** naar dominante 3-card grid. Pure presentatie: ontvangt een `DashboardAction[]` (max 3) en rendert `<ActionCard>` per item. Lege staat: "Geen directe actie nodig" met `CheckCircle2`-icoon en rustige tone. Header met `Zap`-icoon + count-tekst. Mobile stapelt; desktop 3 kolommen.
+- [`src/lib/analytics/actions/index.ts`](src/lib/analytics/actions/index.ts) — re-export van `buildDashboardPrimaryActions` + types.
+- [`src/lib/analytics/index.ts`](src/lib/analytics/index.ts) — selective re-export voor toplevel-import vanuit `@/lib/analytics`.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — `ActionCard` toegevoegd aan barrel.
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — roept `buildDashboardPrimaryActions` aan en geeft de 3 acties aan `<PrimaryActionBar actions={...} />` door (i.p.v. de oude `PrimaryActionVM`).
+
+### Design-regels
+- **Pure businesslogica.** UI berekent niets; alle acties komen uit `buildDashboardPrimaryActions`. Caller geeft `actionPlan`, `rebalance.recommendations`, `allocationPlan`, `regime`, `risk` en `cashShare` door.
+- **Letterlijke aantallen + symbolen.** Titles gebruiken `quantityPlan.sharesToSell` / `position.sharesToBuy` direct — geen herberekening. ETF-tickers krijgen "units", aandelen "aandelen" (heuristisch op ticker-suffix).
+- **Stabiele id's** (`${type}:${symbol ?? "global"}`) zodat React-key's stabiel blijven en dedup mogelijk is.
+- **Confidence-warning** bij `< 0.6`. Voorkomt dat lage-confidence acties stilletjes als hard advies leesbaar zijn.
+- **Geen AI.** Alle title-strings zijn templates (`"Verkoop ${shares} ${unit} ${name}"`) over engine-output.
+- **Source-attribution** per actie zichtbaar in de Cell (Action / Rebalance / Allocatie / Regime / Risk).
+
+### Aannames
+- **HOLD_CASH-drempel 25% cash-share**. Pragmatisch — past bij defensieve portefeuille-mix. Configureerbaar door dit als constant op te tikken.
+- **Unit-noun heuristiek**: ETF / `.AS` / `.L` / Vanguard-prefix → "units"; anders "aandelen". Vraag voor verbetering: wil je dat ik dit afhang van `holding.assetClass` (vereist extra input)?
+- **Rebalance-engine wint van action-engine** voor RISK_REDUCTION-aantallen wanneer een `RebalanceRecommendation.quantityPlan` aanwezig is — die wordt al door /risico gebruikt en is door de gebruiker als bron-of-truth ervaren.
+- **Action-engine BUY wint van allocation-plan BUY** bij dezelfde ticker — action-engine is positie-specifiek (kijkt naar weight + cap), allocation-plan is plan-niveau (cash-deployment).
+- **Maximum 3 acties** per spec. Configureerbaar via `maxActions` voor andere callsites.
+- **Engine-keuze.** Opus 4.7 (1M context) — pure aggregator + UI + tests + page-integratie moesten consistent samen werken met 4 onderliggende engines (action / rebalance / allocation / risk + regime). Voor latere tweaks (bv. nieuw actie-type) volstaat Sonnet 4.6.
+
+### Verbeter-vragen
+1. **Unit-noun via `holding.assetClass`** i.p.v. ticker-heuristiek? Meer accuraat maar vereist input-uitbreiding.
+2. **HOLD_CASH-drempel** als policy-parameter (`policy.maxCashShare`)?
+3. **`type-rank`-tie-break** kan ook profile-driven zijn (risk-averse profile → RISK_REDUCTION nog hogere voorrang).
+
+### Validatie
+- `npm test` → **918/918 tests groen** (+16 dashboard-actions tests).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; dashboard rendert nieuwe `PrimaryActionBar` met 3 cards.
+
+## [Unreleased] - 2026-04-27 · Decision Cockpit polish (cleanup, sticky, click-through)
+
+### Removed
+- [`src/app/(app)/dashboard/components/action-engine-card.tsx`](src/app/(app)/dashboard/components/action-engine-card.tsx) — vervangen door `PrimaryActionBar`.
+- [`src/app/(app)/dashboard/components/next-action-card.tsx`](src/app/(app)/dashboard/components/next-action-card.tsx) — vervangen door cockpit-flow.
+- [`src/app/(app)/dashboard/components/buy-plan-preview-card.tsx`](src/app/(app)/dashboard/components/buy-plan-preview-card.tsx) — vervangen door `AllocationDecisionPreview`.
+- [`src/app/(app)/dashboard/components/top-kansen-card.tsx`](src/app/(app)/dashboard/components/top-kansen-card.tsx) — vervangen door `OpportunitiesCard` in de cockpit.
+- [`src/app/(app)/dashboard/components/allocation-cards.tsx`](src/app/(app)/dashboard/components/allocation-cards.tsx) — geen externe imports meer; opgeruimd.
+- [`src/app/(app)/dashboard/components/risks-and-opportunities.tsx`](src/app/(app)/dashboard/components/risks-and-opportunities.tsx) — geen externe imports meer; opgeruimd.
+- [`src/app/(app)/dashboard/components/top-stats.tsx`](src/app/(app)/dashboard/components/top-stats.tsx) — vervangen door `PortfolioStatusSnapshot`.
+
+### Changed
+- [`src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx`](src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx) — **sticky cockpit-zone** op desktop ≥ 1024px (`lg:sticky lg:top-4 lg:z-20`) met card-achtige container (`bg-background/95 backdrop-blur shadow-sm border`) zodat de PrimaryActionBar + PortfolioStatusSnapshot zichtbaar blijven tijdens scrollen door de verdiepingssecties. Mobile gedraagt zich identiek aan voor (geen sticky).
+- [`src/components/dashboard/decision-cockpit/risk-opportunity-grid.tsx`](src/components/dashboard/decision-cockpit/risk-opportunity-grid.tsx) — **click-through links**:
+  - `RisksCard` heeft een "Naar /risico"-pill rechtsboven met destructive-tone hover.
+  - `OpportunitiesCard` heeft een "Naar /kansen"-pill met primary-tone hover.
+  - Beide gebruiken Next.js `<Link>` voor pre-fetched navigatie + behouden de bestaande total-counter naast de pill.
+
+### Aannames
+- **Sticky `top-4`** (16px gap vanaf viewport-top) — past in het bestaande `PageHeader`-patroon. Op kleine desktop-viewports < 1024px (laptops) valt het sticky-gedrag uit zodat content niet beklemd raakt.
+- **Backdrop-blur + 95% bg-opacity** geeft een premium feel zonder dat onderliggende content erdoorheen schemert.
+- **Click-through gebruikt pill-buttons** i.p.v. de hele card-clickable maken — gebruiker kan nog steeds losse rijen lezen zonder per ongeluk te navigeren.
+- **Cleanup ging een stap verder dan gevraagd**: ook `top-stats.tsx`, `allocation-cards.tsx` en `risks-and-opportunities.tsx` waren orphaned imports en zijn verwijderd. De `portfolio`-pagina heeft een eigen lokale `CurrencyAllocationCard` (geen dependency op de oude dashboard-versie).
+
+### Validatie
+- `npm test` → **902/902 tests groen** (geen test-impact, alleen UI + cleanup).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/dashboard` nog kleiner dankzij verwijderde components.
+
+## [Unreleased] - 2026-04-27 · Decision Cockpit dashboard
+
+### Added
+- [`src/components/dashboard/decision-cockpit/view-model.ts`](src/components/dashboard/decision-cockpit/view-model.ts) — pure view-model-builder. Mapt al-bestaande analytics-output (PortfolioView / ActionPlan / AttentionItem[] / OpportunityCandidate[] / AllocationPlan / TaxReport / MacroScenarioReport / BenchmarkReport / BusinessQuality) naar één compacte `CockpitViewModel`. Sub-builders zijn deterministische pure functions; geen rekenwerk in components.
+- [`src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx`](src/components/dashboard/decision-cockpit/decision-cockpit-layout.tsx) — layout-shell met named slots (`primaryAction` / `status` / `risks` / `opportunities` / `allocation` / `scenario` / `aiExplain`). Above-the-fold zone bevat alleen primary action + status; daaronder 2-koloms risk/opportunity grid; daarna allocation + scenario; AI-explain onderaan. Mobile-first responsive (alles stapelt < 768px).
+- [`src/components/dashboard/decision-cockpit/primary-action-bar.tsx`](src/components/dashboard/decision-cockpit/primary-action-bar.tsx) — beantwoordt #1 vraag "Wat moet ik NU doen?". Tone-strip per `GlobalAdvice` (BUY_MORE / HOLD / DE_RISK / INSUFFICIENT_DATA), urgency-badge, top-1 actie met aantallen + bedrag + confidence. Empty-state wanneer alles op HOLD/DO_NOTHING staat.
+- [`src/components/dashboard/decision-cockpit/portfolio-status-snapshot.tsx`](src/components/dashboard/decision-cockpit/portfolio-status-snapshot.tsx) — 5 tegels (Waarde, P&L, Cash, Risico, Health/regime) met tone-classes per status. Tone op P&L volgt sign; risk-tone bij elevated/high/critical.
+- [`src/components/dashboard/decision-cockpit/risk-opportunity-grid.tsx`](src/components/dashboard/decision-cockpit/risk-opportunity-grid.tsx) — **twee kolommen**: links risico's (top-5 attention items met severity-dot), rechts kansen (top-5 opportunity-radar candidates met score + source-label). Beide cards exporten als `RisksCard` en `OpportunitiesCard` zodat de layout ze in aparte slots kan plaatsen. Empty-states per kolom.
+- [`src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx`](src/components/dashboard/decision-cockpit/allocation-decision-preview.tsx) — toont monthly-contribution + deployed bedrag + top-3 buy-recommendations. Empty-state bij geen plan.
+- [`src/components/dashboard/decision-cockpit/scenario-snapshot.tsx`](src/components/dashboard/decision-cockpit/scenario-snapshot.tsx) — compact: slechtste én beste scenario tegel + verdict-zin uit MacroScenarioReport. Linkt impliciet naar /risico voor de volledige breakdown.
+- [`src/components/dashboard/decision-cockpit/ai-explain-panel.tsx`](src/components/dashboard/decision-cockpit/ai-explain-panel.tsx) — onderaan. Headline + 2-4 bullets uit het view-model. **Geen LLM-call** — bullets komen uit `buildCockpitViewModel.buildAiExplain` (deterministisch). Confidence-badge.
+- [`src/components/dashboard/decision-cockpit/index.ts`](src/components/dashboard/decision-cockpit/index.ts) — barrel met alle component-exports + view-model types.
+- [`src/components/dashboard/decision-cockpit/view-model.test.ts`](src/components/dashboard/decision-cockpit/view-model.test.ts) — **6 nieuwe tests**: lege-staat, status-cash-share + regime, risico-severity-mapping, top-5 limit, scenario-worst/best, determinisme.
+
+### Changed
+- [`src/app/(app)/dashboard/page.tsx`](src/app/(app)/dashboard/page.tsx) — volledig herstructureerd. Page-level orchestreert engine-calls (PortfolioView, AllocationPlan, AttentionItems, ActionPlan, MacroScenarios, OpportunityRadar, Benchmark, BusinessQuality, TaxReport), bouwt het view-model via `buildCockpitViewModel`, en rendert via `DecisionCockpitLayout` met named slots. Onder de cockpit blijft een "Verdieping"-sectie met regime-card + benchmark + business-quality + netto-rendement + historiek voor diepere blik. Bestaande `ActionEngineCard` / `NextActionCard` / `TopKansenCard` / `BuyPlanPreviewCard` zijn vervangen door de nieuwe cockpit-components; oude components blijven in `./components/` voor backwards compat.
+
+### Design-regels
+- **5-second-rule**: above-the-fold = PrimaryActionBar (advies + reden + urgency + top-1 actie) + PortfolioStatusSnapshot (5 tegels). Geen scroll nodig om de kernbeslissing te begrijpen.
+- **Geen businesslogica in components**. Alle rekenwerk zit in `buildCockpitViewModel`; components consumeren een type-safe VM en kiezen alleen kleuren + iconen.
+- **Empty-states overal**: PrimaryActionBar (alles op HOLD), Risico's (lege lijst), Opportunities (geen kandidaten), Allocatie (geen plan), Scenario (geen data). Premium feel: dashed border + subdued color.
+- **Consistente design-tokens**: alleen bestaande Tailwind utilities + `cn()` helper. Tone-classes blijven in lijn met de rest van de app (success/warning/destructive/primary).
+- **Mobile-first**: alle grids zijn `grid-cols-1` default met `lg:grid-cols-2` of `lg:grid-cols-[...]` breakpoints. Geen horizontal scroll.
+- **AI-explain onderaan, niet bovenaan**. AI vat samen wat de engines hebben besloten — niet het primaire besluit. UX-principe: cijfers eerst, AI als reflectie.
+
+### Aannames
+- **Bestaande `ActionEngineCard` blijft beschikbaar in `./components/`** voor toekomstig hergebruik (bv. /strategy-lab); we hebben 'm niet verwijderd zodat de huidige test-suite in stand blijft. Vraag voor verbetering: wil je dat ik de oude components opruim?
+- **AI-explain bullets zijn template-based**, niet LLM-driven. Komt overeen met de bestaande `explain`-laag voor consistency. LLM-swap kan later via dezelfde guardrails als bij `action-decision`.
+- **Risk-severity-mapping**: `attention.severity` (low/moderate/elevated/high/critical) wordt 1:1 doorgegeven; bij onbekende waarde valt 'ie terug op `moderate`.
+- **Scenario worst/best**: meest negatieve `portfolioImpact` is "worst", meest positieve "best". Wanneer alles negatief is, krijgt de minst-negatieve geen `bestScenario` (we filteren op verschillen om dubbele tegels te voorkomen).
+- **Opportunity-radar limit verhoogd van 3 → 5** voor de cockpit zodat de rechter-kolom genoeg vulling heeft. De top-3 widget op andere pagina's is ongewijzigd.
+- **Engine-keuze.** Opus 4.7 (1M context) — 7 components + view-model + page-restructure + tests moesten consistent samen werken met 9 verschillende analytics-engines. Voor latere micro-tweaks (extra tegel, andere tone-mapping) volstaat Sonnet 4.6.
+
+### Verbeter-vragen
+1. **Opruimen oude components** (`ActionEngineCard`, `NextActionCard`, `BuyPlanPreviewCard`, `TopKansenCard` etc.)? Nu nog beschikbaar voor hergebruik.
+2. **Sticky header** voor de cockpit-zone op desktop ≥ 1024px — handig om te kunnen scrollen door de verdieping zonder de primary-action-bar te verliezen?
+3. **Klik-doorroutes** vanuit RisksCard/OpportunitiesCard naar /risico resp. /kansen?
+
+### Validatie
+- `npm test` → **902/902 tests groen** (+6 view-model: lege-staat, cash-share + regime, severity-mapping, top-5 limit, scenario-worst/best, determinisme).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/dashboard` bundlet de nieuwe Decision Cockpit.
+
 ## [Unreleased] - 2026-04-25 · AI Decision Explainer
 
 ### Added

@@ -95,6 +95,13 @@ export interface PolicySettings {
   rebalance?: RebalanceFrequency;
   /** Cash buffer als fractie van portefeuille-waarde. */
   cashBufferPct?: number;
+  /**
+   * Drempel waarboven het dashboard expliciet "Houd cash aan"
+   * adviseert (fractie 0..1, default 0.25 in `dashboard-actions`).
+   * Bedoeld voor users die hun cash-aanhouding willen tunen — bv.
+   * 0.15 voor agressievere profielen, 0.35 voor zeer behoudend.
+   */
+  maxCashShare?: number;
   /** Jaarlijkse belastingdrag in basispunten. */
   taxDragBps?: number;
   /** Transactiekosten in basispunten per trade. */

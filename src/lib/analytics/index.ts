@@ -82,6 +82,9 @@ export * from "./benchmark";
 export * from "./business";
 export * from "./macro";
 export * from "./tax";
+export * from "./dashboard";
+export * from "./decision-history";
+export * from "./simulation";
 // Actions: selectief re-export. `holding-action.ts` exporteert al een
 // constant `ACTION_THRESHOLDS` (andere semantiek), daarom heet die in
 // de actions-submodule `DECISION_THRESHOLDS`.
@@ -90,6 +93,7 @@ export {
   resolveCap,
   resolveActionQuantity,
   runDecisionEngine,
+  buildDashboardPrimaryActions,
   DECISION_THRESHOLDS,
   type ActionDecision,
   type ActionUrgency,
@@ -102,6 +106,11 @@ export {
   type DecisionEngineInput,
   type ClassifyActionInput,
   type ClassifyActionResult,
+  type DashboardAction,
+  type DashboardActionType,
+  type DashboardActionUrgency,
+  type DashboardActionSource,
+  type BuildDashboardActionsInput,
   type ResolveQuantityInput,
   type ResolveQuantityResult,
 } from "./actions";

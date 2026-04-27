@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import {
+  buildDashboardSummaryPrompt,
+  explainDashboardSummary,
+  type DashboardSummaryExplanationInput,
+} from "@/lib/ai/dashboard-explainer";
 import { explain } from "@/lib/ai/explainers";
 import {
   buildActionDecisionPrompt,
@@ -46,13 +51,16 @@ import type { ExplainContext, ExplainUseCase } from "@/types/ai";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID_USE_CASES: ReadonlySet<ExplainUseCase | "action_decision"> = new Set([
+type ExtraUseCase = "action_decision" | "dashboard_summary";
+
+const VALID_USE_CASES: ReadonlySet<ExplainUseCase | ExtraUseCase> = new Set([
   "holding_score",
   "fragile_concentration",
   "buy_plan",
   "market_regime",
   "portfolio_risks",
   "action_decision",
+  "dashboard_summary",
 ]);
 
 export async function POST(request: NextRequest) {
@@ -68,8 +76,40 @@ export async function POST(request: NextRequest) {
     if (validationError) return jsonError(validationError, 400);
 
     const rawCtx = body.value.context as Record<string, unknown>;
-    const useCase = rawCtx.useCase as ExplainUseCase | "action_decision";
+    const useCase = rawCtx.useCase as ExplainUseCase | ExtraUseCase;
     const includePrompt = body.value.includePrompt === true;
+
+    // Dashboard-summary pad: AI Explain Panel onderaan de cockpit.
+    if (useCase === "dashboard_summary") {
+      const input: DashboardSummaryExplanationInput = {
+        topActions:
+          (rawCtx.topActions ??
+            []) as DashboardSummaryExplanationInput["topActions"],
+        topRisks:
+          (rawCtx.topRisks ??
+            []) as DashboardSummaryExplanationInput["topRisks"],
+        topOpportunities:
+          (rawCtx.topOpportunities ??
+            []) as DashboardSummaryExplanationInput["topOpportunities"],
+        regime:
+          (rawCtx.regime ?? null) as DashboardSummaryExplanationInput["regime"],
+        dataQualityNotes: Array.isArray(rawCtx.dataQualityNotes)
+          ? (rawCtx.dataQualityNotes as string[])
+          : [],
+        overallConfidence:
+          typeof rawCtx.overallConfidence === "number"
+            ? rawCtx.overallConfidence
+            : undefined,
+      };
+      const response = explainDashboardSummary(input);
+      if (includePrompt) {
+        return NextResponse.json({
+          response,
+          prompt: buildDashboardSummaryPrompt(input),
+        });
+      }
+      return NextResponse.json(response);
+    }
 
     // Action-decision pad: aparte module met eigen renderer + prompt.
     if (useCase === "action_decision") {
@@ -118,10 +158,31 @@ function validateContext(context: unknown): string | null {
   if (typeof useCase !== "string") {
     return "Field `context.useCase` ontbreekt of is geen string.";
   }
-  if (!VALID_USE_CASES.has(useCase as ExplainUseCase | "action_decision")) {
+  if (!VALID_USE_CASES.has(useCase as ExplainUseCase | ExtraUseCase)) {
     return `Onbekende useCase: ${useCase}.`;
   }
   const ctx = context as Record<string, unknown>;
+
+  if (useCase === "dashboard_summary") {
+    // Tolerant: alle velden zijn optioneel; de renderer geeft fallback-tekst
+    // wanneer arrays leeg zijn. We checken alleen op shape-correctheid.
+    if (
+      ctx.topActions !== undefined &&
+      !Array.isArray(ctx.topActions)
+    ) {
+      return "dashboard_summary: `topActions` moet een array zijn.";
+    }
+    if (ctx.topRisks !== undefined && !Array.isArray(ctx.topRisks)) {
+      return "dashboard_summary: `topRisks` moet een array zijn.";
+    }
+    if (
+      ctx.topOpportunities !== undefined &&
+      !Array.isArray(ctx.topOpportunities)
+    ) {
+      return "dashboard_summary: `topOpportunities` moet een array zijn.";
+    }
+    return null;
+  }
 
   if (useCase === "action_decision") {
     const action = ctx.action as Record<string, unknown> | undefined;

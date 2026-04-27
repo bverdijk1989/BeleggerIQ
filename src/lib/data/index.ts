@@ -16,6 +16,7 @@ export {
   type PortfolioSnapshotRow,
   type FactorSnapshotRow,
 } from "./snapshot-repository";
+export { decisionHistoryRepository } from "./decision-history-repository";
 
 // Market data
 export { marketDataCache, buildCacheKey, TtlCache } from "./cache";
