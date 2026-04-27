@@ -124,6 +124,105 @@ describe("buildRiskReport", () => {
     expect(report.flags.some((f) => f.code === "concentration.sector")).toBe(true);
   });
 
+  it("ETF-only portefeuille triggert GEEN sector-bias-flag (regression: 'Onbekend' 100%)", () => {
+    // Vanguard / iShares ETFs hebben holding.sector = null. Voorheen
+    // viel dat in een "Onbekend"-bucket → 100% sector-concentratie →
+    // fout-positieve concentration.sector flag.
+    const etfs = [
+      holding({
+        id: "h1",
+        ticker: "VWCE",
+        name: "Vanguard FTSE All-World",
+        assetClass: "ETF",
+        sector: null,
+        currentPrice: 100,
+        quantity: 100,
+      }),
+      holding({
+        id: "h2",
+        ticker: "IWDA",
+        name: "iShares MSCI World",
+        assetClass: "ETF",
+        sector: null,
+        currentPrice: 80,
+        quantity: 50,
+      }),
+    ];
+    const valuations = etfs.map(valuation);
+    const totalValue = valuations.reduce((sum, v) => sum + v.marketValueBase, 0);
+
+    const report = buildRiskReport({
+      portfolioId: "p1",
+      baseCurrency: "EUR",
+      valuations,
+      totalValue,
+    });
+
+    expect(report.topSector).toBeUndefined();
+    expect(report.flags.some((f) => f.code === "concentration.sector")).toBe(false);
+  });
+
+  it("EQUITY zonder sector-data telt nog wél als 'Onbekend' (data-quality-signaal)", () => {
+    // Een aandeel zonder sector-info is GEEN ETF-quirk maar een
+    // enrichment-gat dat de gebruiker hoort te zien.
+    const holdings = [
+      holding({
+        id: "h1",
+        ticker: "XYZ",
+        assetClass: "EQUITY",
+        sector: null, // missing data
+        currentPrice: 500,
+        quantity: 2,
+      }),
+    ];
+    const valuations = holdings.map(valuation);
+    const totalValue = valuations.reduce((sum, v) => sum + v.marketValueBase, 0);
+
+    const report = buildRiskReport({
+      portfolioId: "p1",
+      baseCurrency: "EUR",
+      valuations,
+      totalValue,
+    });
+
+    expect(report.topSector?.label).toBe("Onbekend");
+  });
+
+  it("mixed ETF + single-stock: weight relatief tot total-portfolio (50% tech-stocks + 50% ETF → topSector 50%)", () => {
+    const holdings = [
+      holding({
+        id: "h1",
+        ticker: "ASML",
+        sector: "Technology",
+        assetClass: "EQUITY",
+        currentPrice: 500,
+        quantity: 1,
+      }),
+      holding({
+        id: "h2",
+        ticker: "VWCE",
+        name: "Vanguard FTSE All-World",
+        assetClass: "ETF",
+        sector: null,
+        currentPrice: 500,
+        quantity: 1,
+      }),
+    ];
+    const valuations = holdings.map(valuation);
+    const totalValue = valuations.reduce((sum, v) => sum + v.marketValueBase, 0);
+
+    const report = buildRiskReport({
+      portfolioId: "p1",
+      baseCurrency: "EUR",
+      valuations,
+      totalValue,
+    });
+
+    // Sector-weight = 50%/totaal — niet 100%/equity-only.
+    expect(report.topSector?.label).toBe("Technology");
+    expect(report.topSector?.weight).toBeCloseTo(0.5, 2);
+  });
+
   it("lege portefeuille retourneert neutrale score en geen warnings", () => {
     const report = buildRiskReport({
       portfolioId: "p1",
