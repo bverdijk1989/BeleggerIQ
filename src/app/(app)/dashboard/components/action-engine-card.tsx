@@ -20,6 +20,8 @@ import type {
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { Currency } from "@/types/common";
 
+import { ActionExplainerButton } from "./action-explainer-button";
+
 /**
  * ActionEngineCard — pure presentatie van een `ActionPlan`.
  *
@@ -296,6 +298,9 @@ function ActionRow({
         <span className="font-semibold text-foreground">Risico-impact:</span>{" "}
         {action.riskImpact}
       </p>
+      <div className="mt-2 flex justify-end">
+        <ActionExplainerButton action={action} />
+      </div>
     </li>
   );
 }

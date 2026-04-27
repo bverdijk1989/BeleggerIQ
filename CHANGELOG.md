@@ -2,6 +2,46 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-25 · AI Decision Explainer
+
+### Added
+- [`src/lib/ai/explain/types.ts`](src/lib/ai/explain/types.ts) — types `ActionDecisionExplanation` (headline / whyLogical / risks / whatCanGoWrong / sources / confidence / disclaimer), `ActionDecisionExplanationInput`. Output is volledig afgeleid uit een al-bestaande `PositionAction`.
+- [`src/lib/ai/explain/action-decision.ts`](src/lib/ai/explain/action-decision.ts) — `explainActionDecision` deterministische renderer. Headline templates per actie-type ("wordt voorgesteld om bij te kopen" / "af te bouwen" / "te verkopen" / "aan te houden" / "geen actie nodig"); BUY/TRIM/SELL noemen exact aantallen + EUR-bedrag uit de input. WhyLogical = letterlijk de engine-`rationale` + bron-attributie. Risks = engine-`riskImpact` + lage-confidence-warning + risk-class + lage-quality cue. WhatCanGoWrong = vaste templates per actie-type (geen cijfers). Geen LLM-call.
+- [`src/lib/ai/explain/prompt.ts`](src/lib/ai/explain/prompt.ts) — `buildActionDecisionPrompt` + `ACTION_DECISION_SYSTEM_PROMPT` + `validateExplanationAgainstAction`. System-prompt verbiedt expliciet: nieuwe scores/percentages/bedragen verzinnen, actie of urgency aanpassen, koop-/verkoopadvies geven. Validator checkt elk numeric mention in (theoretische) AI-output tegen de input-action; rejected-claims worden teruggemeld.
+- [`src/lib/ai/explain/index.ts`](src/lib/ai/explain/index.ts) — barrel.
+- [`src/lib/ai/explain/action-decision.test.ts`](src/lib/ai/explain/action-decision.test.ts) — **13 nieuwe tests**: 5 actie-paden (TRIM/BUY/HOLD/DO_NOTHING + rationale-letterlijk), 2 risk-context (high-class, low-composite), determinisme, prompt-payload (system-rules + user-JSON), 3 validator (geen cijfers, matchend, verzonnen).
+- [`src/app/(app)/dashboard/components/action-explainer-button.tsx`](src/app/(app)/dashboard/components/action-explainer-button.tsx) — "Uitleg"-knop op iedere actie-rij. Opent een Sheet die `/api/ai/explain` (use-case `action_decision`) aanroept en de drie secties (Waarom logisch / Risico's / Wat kan misgaan) rendert. Loading-state + error-state, pure presentatie.
+
+### Changed
+- [`src/lib/ai/index.ts`](src/lib/ai/index.ts) — `export * from "./explain"`.
+- [`src/app/api/ai/explain/route.ts`](src/app/api/ai/explain/route.ts) — nieuwe use-case `action_decision` toegevoegd aan `VALID_USE_CASES`. Eigen handler-pad dat `explainActionDecision` aanroept en optioneel de prompt-payload mee-stuurt via `includePrompt`-flag (consistent met andere use-cases). Validator vereist `action.symbol`/`action.action`/`action.urgency`.
+- [`src/app/(app)/dashboard/components/action-engine-card.tsx`](src/app/(app)/dashboard/components/action-engine-card.tsx) — `ActionExplainerButton` rechts onderaan iedere actie-rij. Geen layout-breaking change.
+
+### Design-regels
+- **Geen LLM in productie-pad.** Renderer is volledig deterministisch — door constructie kan er geen verzonnen cijfer in de output sluipen. Identieke `PositionAction` → identieke explanation (test gepind).
+- **AI past geen actie of cijfers aan.** Zowel de pure renderer als de prompt-payload tonen alleen wat er **al** is besloten. De UI toont expliciet welke engines hebben bijgedragen (factor / risk / rebalance / policy / regime).
+- **Cijfers komen uit één bron**: `PositionAction.sharesToBuy/Sell/amount/confidence`. Headline gebruikt deze waarden direct via `formatCurrency`/`formatNumber`, geen herberekening.
+- **`whatCanGoWrong` is templated per actie**, niet AI-gegenereerd. Voor BUY: "marktomslag direct na bijkopen", "factor-score kijkt achteruit", "regime-shift". Voor TRIM: "verkopen op lokaal dieptepunt", "belastingimpact niet meegerekend". Voor SELL/HOLD/DO_NOTHING dito. Reproduceerbaar.
+- **Lage confidence triggert expliciete warning** (`< 50%` → bullet in risks). Onzekerheid wordt zichtbaar gemaakt.
+- **Prompt-payload klaar voor LLM-swap**. System-prompt verbiedt scores aanpassen + nieuwe cijfers + advies geven. Validator (`validateExplanationAgainstAction`) staat klaar als guardrail wanneer de LLM landt.
+
+### Aannames
+- **`action_decision` is een nieuwe use-case naast de bestaande 5** (`holding_score`, `fragile_concentration`, `buy_plan`, `market_regime`, `portfolio_risks`). Eigen submodule omdat de input-shape (`PositionAction`) wezenlijk anders is dan de bestaande `ExplainContext`-varianten.
+- **Eén `PositionAction` per call**. Voor batch-explanations roept de UI de API meerdere keren aan; we kiezen voor enkelvoudige API-design omdat dit makkelijker te valideren is en cache-vriendelijker.
+- **Bron-attributie als zin in `whyLogical`** — niet als gestructureerde property. UI kan nog steeds filteren op `result.sources`.
+- **Renderer hardcoded NL**. Internationalisering kan later via een `locale`-param.
+- **Engine-keuze.** Sonnet 4.6 zou voor dit type pure-template werk volstaan, maar om consistency met het bredere AI-laag-design te bewaren (existing explainers + research-dossier) bouw ik 'm in dezelfde sessie via Opus 4.7 (1M context). Voor latere tweaks (extra risk-templates, locale-support) volstaat Sonnet 4.6 ruim.
+
+### Verbeter-vragen
+1. **Wil je een batch-endpoint** waarmee je 10 acties tegelijk kunt uitleggen i.p.v. 10 losse calls? Bv. `useCase: "action_decisions"` met `actions: PositionAction[]`.
+2. **Locale-ondersteuning** — straks ook EN voor multi-language UI?
+3. **LLM-swap voor prozza-polishing**: nu deterministisch templates. Wil je dat ik de bestaande prompt-payload ga koppelen aan een Haiku 4.5-call (cost-efficiency) zodra je kiest om die in productie te schakelen?
+
+### Validatie
+- `npm test` → **896/896 tests groen** (+13 action-decision: 5 actie-paden, 2 risk-context, 1 determinisme, 2 prompt, 3 validator).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt; `/api/ai/explain` accepteert nu `action_decision` use-case; dashboard bundlet de nieuwe knop + Sheet.
+
 ## [Unreleased] - 2026-04-25 · Tax Engine: cash + debt + TWR + fiscaal partner
 
 ### Added
