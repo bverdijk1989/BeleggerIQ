@@ -449,6 +449,32 @@ model DecisionSnapshot {
   @@index([expiresAt])
 }
 
+/// Magic-link login token. Single-use, time-bounded.
+///
+/// Conventies:
+/// - **`tokenHash`** = SHA-256 hex van het ruwe token; we slaan het ruwe
+///   token NOOIT op. Verificatie hashed de meegegeven raw-token en
+///   vergelijkt timing-safe.
+/// - **`expiresAt`** = `createdAt + 15 minuten` (default in code).
+/// - **`usedAt`** wordt gezet bij eerste succesvolle exchange; daarna
+///   wordt het token afgewezen (single-use).
+/// - **`ipHash`** is optioneel en bevat een SHA-256 van het IP — voor
+///   audit-trail zonder PII.
+/// - Unique key `(email, tokenHash)` voorkomt dubbele insertions.
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  email     String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  ipHash    String?
+  createdAt DateTime  @default(now())
+
+  @@unique([email, tokenHash])
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
 // ============================================================
 //  ENUMS
 // ============================================================
