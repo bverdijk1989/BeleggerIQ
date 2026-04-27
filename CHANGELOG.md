@@ -2,6 +2,174 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · Quant, AI & Algoritme-validatie (Asness / Simons / Ng)
+
+### Persona-samenvatting
+
+**Cliff Asness — factor investing & backtesting:**
+> "Een composite van 65 op basis van 1 momentum-signaal is statistisch
+> niet hetzelfde als een composite van 65 op basis van 12 signalen.
+> De factor-engine behandelde ze gelijk — dat is **fake precision**.
+> Tweede issue: de backtest-engine geeft Sharpe-waardes terug zonder
+> survivorship-bias-disclosure. Universe is statisch; je vertelt de
+> gebruiker niet dat gefailde namen ontbreken." → **Beide gefixt.**
+
+**Jim Simons — pure data-driven:**
+> "Coverage moet hard tellen. Beneden 50% per pillar tel je niet, of
+> je bent expliciet over de onzekerheid. Backtests onder 36 maanden
+> mogen geen Sharpe-waardes presenteren zonder waarschuwing." →
+> **Gefixt** via `MIN_COVERAGE_FOR_COMPOSITE` + `small-sample`-warning.
+
+**Andrew Ng — AI betrouwbaarheid:**
+> "De dashboard-explainer is deterministisch — goed nieuws, geen LLM-
+> hallucinatie-risico in productie. Maar `validateDashboardSummary`
+> en `validateExplanationAgainstAction` validators zijn er voor de
+> LLM-swap. Wire ze op de runtime *vóór* je een LLM achter de explainer
+> hangt, anders zit je in een race tegen onbedoelde regressies." →
+> **P1 — bekend, gedocumenteerd voor LLM-swap-moment.**
+
+### Modelrisico's — geïdentificeerd
+
+1. **Fake precision in composite factor-score.** 1-signaal-pillar werd
+   als volwaardig meegewogen. **GEFIXT** via min-coverage-floor.
+2. **Survivorship-bias in backtest.** Statisch universe, geen
+   joiners/leavers, geen warning. **GEFIXT** via methodology-warnings.
+3. **Small-sample-overconfidence.** Sharpe op 12 maanden = onzeker;
+   geen disclaimer in output. **GEFIXT** via `small-sample`-warning.
+4. **Price-coverage gaps onzichtbaar.** Een ticker met 50% missende
+   maanden gaf een vlakke equity-segment zonder uitleg. **GEFIXT** via
+   `price-coverage`-warning.
+5. **Look-ahead-bias door strategy-design.** Engine geeft `priceHistoryByTicker`
+   met *volledige* historie aan elke `strategy(ctx)`-call; niets
+   forceert dat strategies alleen `price[≤ asOf]` gebruiken. *Open* —
+   audit-warning, niet automatisch detecteerbaar.
+6. **AI-hallucination latency.** `validateDashboardSummary` en
+   `validateExplanationAgainstAction` zijn aanwezig maar niet wired in
+   het runtime-pad. Deterministische renderer maakt dit nu OK; bij
+   LLM-swap **moet** de validator runtime worden. *P1.*
+7. **Opportunity-radar coverage.** Score komt uit gewogen som van
+   actieve signalen, maar geen minimum-aantal-signalen-eis. Een
+   kandidaat met 1 signaal kan score 70 halen. *P2.*
+8. **Mispricing scanner P/E-percentile bias.** Sample-size-correctie
+   ontbreekt; bij dunne sectoren kan 1 outlier de percentile-positie
+   van een ticker domineren. *P2.*
+9. **Geen out-of-sample validatie.** Backtest gebruikt zelfde data als
+   strategy-fitting; engine biedt geen split. *P3.*
+10. **Geen multiple-testing-correctie.** Verschillende strategies
+    benchmarken op dezelfde data → P-hacking-risico. *P3.*
+
+### Bias-audit
+
+| Bias | Status |
+|---|---|
+| **Look-ahead bias** | Engine heeft toegang tot full history; mitigatie ligt bij strategy-implementatie. *Audit-warning gedocumenteerd.* |
+| **Survivorship bias** | **Gefixt**: `methodologyWarnings.survivorship` flagt statisch universe ≥ 60 maanden. |
+| **Selection bias** | Universe wordt door de caller bepaald; engine biedt geen objectief filter. *Open — caller-verantwoordelijkheid.* |
+| **Overfitting** | Strategy presets zijn parameter-arm; geen grid-search-loop in productie. **Risico laag.** Custom strategies (`buildCustomStrategy`) krijgen geen overfitting-test. *P3.* |
+| **Confirmation bias** | UI toont actieve signals; geen "anti-signal"-counterview. *P3.* |
+| **Recency bias** | 12m-momentum domineert; engine gewichtweegt klassiek 12-1. **OK.** |
+| **Sample-size** | **Gefixt** via `small-sample`-warning < 36 maanden. |
+
+### Backtest-realism audit
+
+- ✅ Fractional shares (geen rounding-leakage)
+- ✅ Transactiekosten via `commissionBps` × turnover
+- ❌ Geen bid/ask spread (impact: 5-15bps per trade onderschat)
+- ❌ Geen tax-modellering (impact: 10-25% bij hoge turnover in NL)
+- ❌ Geen slippage / market-impact (impact: groeit met positie-size)
+- ✅ `lastKnownPrice`-fallback bij missende maand (geen synthetic returns)
+- ✅ Maandelijkse rebalance-loop (geen intra-month look-ahead)
+- ✅ Benchmark genormaliseerd op `initialCapital` (geen offset-bias)
+
+### AI-hallucination audit
+
+- ✅ **Deterministische renderers**: `explainActionDecision`,
+  `explainDashboardSummary` zijn pure functies. Output is
+  gegarandeerd consistent met input.
+- ✅ **Numeric-claim validators**: `validateExplanationAgainstAction`
+  en `validateDashboardSummary` cross-checken numerieke tokens
+  tegen `JSON.stringify(input)`. **Beschikbaar maar niet runtime-
+  geïntegreerd** — fine zolang renderer pure is.
+- ❌ **AI-prompt-payload niet runtime gevalideerd.** `buildActionDecisionPrompt`
+  en `buildDashboardSummaryPrompt` worden niet getest op
+  payload-stabiliteit. *P2.*
+- ❌ **Geen output-fingerprint per release.** Een refactor in de
+  renderer kan stilletjes copy-tekst veranderen zonder dat dit in
+  CI gevangen wordt. *P3 — golden-master-tests.*
+
+### Confidence-framework verbeteringen
+
+| Module | Vóór | Na |
+|---|---|---|
+| `factors/composite.ts` | Confidence = avg(coverage) — 1-signaal-pillar telde mee. | Min-coverage-floor: < 0.5 coverage → niet meegewogen; < 2 reliable pillars → composite=50, confidence ≤ 0.3. |
+| `regime/engine.ts` | OK — `confidence = activeWeight/totalWeight`. | Geen wijziging. |
+| `tax/` | Confidence overgenomen uit FundamentalsSnapshot. | Geen wijziging. |
+| `business/` | `confidence = avg(pillar.coverage)`. | Geen wijziging — vergelijkbare aanpak als composite zou aan te bevelen zijn. *P3.* |
+| `opportunity/` | Confidence per signaal-tier (HIGH=0.85). | OK. |
+| `scenario-snapshot/` | `0.6 + defensiveStrength/250`. | OK — bewust conservatief. |
+
+### Verbeteringen — geïmplementeerd in deze diff
+
+#### `src/lib/analytics/factors/composite.ts`
+- **Drempels:** `MIN_COVERAGE_FOR_COMPOSITE = 0.5`, `MIN_PILLARS_FOR_COMPOSITE = 2`, `MAX_CONFIDENCE_LOW_COVERAGE = 0.3`.
+- **`scoreFactors()`** filtert pillars op `coverage ≥ 0.5` voordat composite wordt berekend; bij minder dan 2 reliable pillars wordt composite naar 50 geforceerd en confidence geclamped.
+- **`computeComposite()`** krijgt optionele `reliable`-parameter; backwards-compat zonder arg.
+- **Composite-rationale** krijgt expliciete "onvoldoende data"-regel wanneer < 2 reliable pillars.
+- **6 nieuwe tests:** geen-data → composite 50 + lage confidence; alleen-risk-pillar → composite 50; 2-pillar minimum respecteert composite; volledige coverage → confidence ≥ 0.6; computeComposite filter werkt; backwards-compat.
+
+#### `src/types/backtest.ts`
+- Nieuwe types `BacktestMethodologyWarning` + `BacktestMethodologyWarningKind` (`survivorship | small-sample | price-coverage | look-ahead`).
+- `BacktestResult.methodologyWarnings?: BacktestMethodologyWarning[]` toegevoegd.
+
+#### `src/lib/analytics/backtest/engine.ts`
+- Nieuwe `detectMethodologyWarnings()`-functie:
+  - **`small-sample`**: backtest < 36 maanden → severity 0.7.
+  - **`survivorship`**: ≥ 60 maanden + statisch universe (alle leden ≥ 95% coverage) → severity 0.6.
+  - **`price-coverage`**: ten minste één lid mist > 25% van de maanden → severity 0.5.
+- Output gebundeld in `BacktestResult.methodologyWarnings`.
+- **3 nieuwe tests** dekken alle drie warning-types.
+
+### Verbeteringen — aanbevolen voor volgende iteratie
+
+| Prio | Module | Verbetering |
+|---|---|---|
+| **P1** | `api/ai/explain/route.ts` | Runtime-call naar `validateDashboardSummary` op LLM-swap-moment; reject responses met rejected claims. |
+| **P1** | `backtest/engine.ts` | `look-ahead`-warning op alle custom strategies (audit-trail i.p.v. detectie). |
+| **P2** | `opportunity/scoring.ts` | Min-aantal-signalen check (≥ 2) voor score boven 60. |
+| **P2** | `mispricing/peer-dislocation.ts` | Min-sample-size voor peer-percentile (n ≥ 5). |
+| **P2** | `business/business-score.ts` | Zelfde min-coverage-floor als factors voor compounder-classificatie. |
+| **P3** | `backtest/engine.ts` | Out-of-sample split via `holdoutMonths`-config. |
+| **P3** | `backtest/custom-strategy.ts` | Deflated Sharpe (Bailey & López de Prado) bij multiple-testing. |
+| **P3** | Alle explainers | Golden-master tests voor narrative-output. |
+
+### Scorecard (1-5; 5 = beste)
+
+| Engine | Vóór | Na | Toelichting |
+|---|---|---|---|
+| **Factor Engine** | 3 | **4** | Min-coverage-floor stopt fake precision. |
+| **Opportunity Radar** | 3 | 3 | Min-aantal-signalen P2. |
+| **Mispricing Scanner** | 3 | 3 | Sample-size-correctie P2. |
+| **Backtest Engine** | 3 | **4** | Methodology-warnings + survivorship-detectie. |
+| **Benchmark & Attribution** | 4 | 4 | Geen wijziging. |
+| **AI Explain Layer** | 4 | 4 | Deterministisch + validators beschikbaar. |
+| **Data Quality & Enrichment** | 3 | 3 | Geen wijziging. |
+| **Overall quant-rigor** | 3 | **3.7** | Twee critical biases gefixt. |
+
+### Validatie
+- `npm test` → **1107/1107 tests groen** (+9 quant-validatie).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+### Aannames
+- **Min-coverage-floor = 0.5.** Onder die fractie is het signaal te
+  dun voor statistische betekenis; bewust conservatief.
+- **Min-pillars = 2.** 1 betrouwbare pillar geeft een richting maar
+  geen composite-verhaal — daarom NEUTRAL=50 + lage confidence.
+- **Survivorship-heuristiek triggert pas ≥ 60 maanden.** Korter dan
+  dat is "small-sample" sowieso de dominante warning.
+- **Backwards-compatible API.** `computeComposite(subScores, weights)`
+  blijft werken zonder reliable-parameter.
+
 ## [Unreleased] - 2026-04-27 · Beleggingsstrategie & Praktische Toepasbaarheid (Buffett / Druckenmiller / Wood)
 
 ### Persona-samenvatting

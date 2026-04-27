@@ -87,6 +87,34 @@ export interface BacktestResult {
 
   benchmark?: BenchmarkComparison;
   regimeBreakdown?: RegimeBreakdown[];
+  /**
+   * Methodologie-waarschuwingen die de gebruiker moet begrijpen vóór 'ie
+   * de backtest-resultaten serieus neemt:
+   *  - **survivorship**  — universe is statisch: alleen tickers die
+   *    vandaag bestaan zitten in de historie; gefailde namen ontbreken.
+   *  - **small-sample**  — minder dan 36 maanden: Sharpe/Sortino zijn
+   *    statistisch zwak, max-drawdown is afhankelijk van toevallige fase.
+   *  - **price-coverage** — meerdere maanden zonder prijsdata voor één of
+   *    meer namen; engine heeft `lastKnownPrice` gebruikt (geen synthetic
+   *    returns, maar resulteert wel in vlakke segmenten).
+   *  - **look-ahead**    — strategy heeft toegang tot toekomstige prijzen
+   *    die ze in productie niet zou hebben (audit-warning, niet
+   *    automatisch detecteerbaar).
+   */
+  methodologyWarnings?: BacktestMethodologyWarning[];
+}
+
+export type BacktestMethodologyWarningKind =
+  | "survivorship"
+  | "small-sample"
+  | "price-coverage"
+  | "look-ahead";
+
+export interface BacktestMethodologyWarning {
+  kind: BacktestMethodologyWarningKind;
+  message: string;
+  /** 0..1 — hoe ernstig is dit risico voor de output? */
+  severity: number;
 }
 
 /**

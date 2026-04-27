@@ -112,6 +112,88 @@ describe("scoreFactors", () => {
   });
 });
 
+describe("scoreFactors — min-coverage floor (Asness/Simons)", () => {
+  it("zonder fundamentals én zonder priceHistory → composite 50 + lage confidence", () => {
+    const score = scoreFactors({ ticker: "X" });
+    expect(score.composite).toBe(50);
+    expect(score.confidence).toBeLessThanOrEqual(0.3);
+  });
+
+  it("alleen risk-pillar (1 van 4) → composite 50 + confidence ≤ 0.3", () => {
+    const score = scoreFactors({
+      ticker: "X",
+      volatility: 0.25,
+      maxDrawdown: -0.2,
+      beta: 1.0,
+    });
+    expect(score.composite).toBe(50);
+    expect(score.confidence).toBeLessThanOrEqual(0.3);
+    expect(
+      score.rationales?.composite?.some((r) =>
+        r.toLowerCase().includes("onvoldoende data"),
+      ),
+    ).toBe(true);
+  });
+
+  it("twee pillars met voldoende coverage → composite gerespecteerd", () => {
+    const score = scoreFactors({
+      ticker: "X",
+      fundamentals: fundamentals(),
+      volatility: 0.18,
+      maxDrawdown: -0.12,
+      beta: 0.9,
+    });
+    // quality + value uit fundamentals + risk uit vol/dd → ≥ 2 pillars
+    expect(score.composite).not.toBe(50);
+    expect(score.confidence).toBeGreaterThan(0.3);
+  });
+
+  it("volledige coverage → confidence dichtbij 1", () => {
+    // Gegenereerde 12-maands prijshistorie zodat momentum-pillar ook telt
+    const history = Array.from({ length: 14 }).map((_, i) => {
+      const d = new Date(2025, i, 1);
+      return {
+        date: d.toISOString().slice(0, 10),
+        open: 100,
+        close: 100 + i * 1.5,
+        high: 100 + i * 1.5,
+        low: 100 + i * 1.5,
+        volume: 0,
+      };
+    });
+    const score = scoreFactors({
+      ticker: "X",
+      fundamentals: fundamentals(),
+      priceHistory: history,
+      volatility: 0.18,
+      maxDrawdown: -0.12,
+      beta: 0.9,
+    });
+    expect(score.confidence).toBeGreaterThanOrEqual(0.6);
+  });
+});
+
+describe("computeComposite — reliable-pillar filter", () => {
+  it("alleen reliable pillars tellen mee in de gewogen som", () => {
+    const sub = { quality: 80, value: 80, momentum: 20, lowVol: 20 };
+    const w = { quality: 0.25, value: 0.25, momentum: 0.25, lowVol: 0.25 };
+    // quality+value = 80 (gemiddelde), unreliable momentum/lowVol weggefilterd
+    const result = computeComposite(sub, w, {
+      quality: true,
+      value: true,
+      momentum: false,
+      lowVol: false,
+    });
+    expect(result).toBe(80);
+  });
+
+  it("backwards-compat: zonder reliable-arg gedraagt computeComposite zich als voorheen", () => {
+    const sub = { quality: 80, value: 80, momentum: 20, lowVol: 20 };
+    const w = { quality: 0.25, value: 0.25, momentum: 0.25, lowVol: 0.25 };
+    expect(computeComposite(sub, w)).toBe(50);
+  });
+});
+
 describe("applyFactorScore + scoreHoldings", () => {
   it("applyFactorScore levert een nieuw Holding object met factorScore", () => {
     const score = scoreFactors({

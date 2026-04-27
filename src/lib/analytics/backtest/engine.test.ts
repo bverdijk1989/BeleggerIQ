@@ -269,3 +269,76 @@ describe("runBacktest — lege of ongeldige input", () => {
     expect(result.finalValue).toBe(10_000);
   });
 });
+
+describe("runBacktest — methodology warnings (Asness/Simons)", () => {
+  it("small-sample warning bij < 36 maanden", () => {
+    const months = monthKeys(2023, 1, 12);
+    const member: BacktestUniverseEntry = {
+      ticker: "AAA",
+      monthly: series(100, 0.005, months),
+    };
+    const result = runBacktest({
+      config: baseConfig({
+        startDate: "2023-01-01",
+        endDate: "2023-12-31",
+      }),
+      strategy: equalWeightStrategy,
+      members: [member],
+    });
+    const small = result.methodologyWarnings?.find(
+      (w) => w.kind === "small-sample",
+    );
+    expect(small).toBeDefined();
+    expect(small?.severity).toBeGreaterThan(0);
+  });
+
+  it("survivorship warning bij ≥ 60 maanden statisch universe (alle volledige coverage)", () => {
+    const months = monthKeys(2018, 1, 72);
+    const a: BacktestUniverseEntry = {
+      ticker: "AAA",
+      monthly: series(100, 0.005, months),
+    };
+    const b: BacktestUniverseEntry = {
+      ticker: "BBB",
+      monthly: series(100, 0.005, months),
+    };
+    const result = runBacktest({
+      config: baseConfig({
+        startDate: "2018-01-01",
+        endDate: "2023-12-31",
+      }),
+      strategy: equalWeightStrategy,
+      members: [a, b],
+    });
+    const survivorship = result.methodologyWarnings?.find(
+      (w) => w.kind === "survivorship",
+    );
+    expect(survivorship).toBeDefined();
+    expect(survivorship?.message).toMatch(/gefailde namen/);
+  });
+
+  it("price-coverage warning bij ticker met >25% missende maanden", () => {
+    const months = monthKeys(2021, 1, 24);
+    const full: BacktestUniverseEntry = {
+      ticker: "AAA",
+      monthly: series(100, 0.005, months),
+    };
+    // Slechts eerste 12 maanden voor BBB → 50% coverage gap
+    const partial: BacktestUniverseEntry = {
+      ticker: "BBB",
+      monthly: series(100, 0.005, months.slice(0, 12)),
+    };
+    const result = runBacktest({
+      config: baseConfig({
+        startDate: "2021-01-01",
+        endDate: "2022-12-31",
+      }),
+      strategy: equalWeightStrategy,
+      members: [full, partial],
+    });
+    const coverage = result.methodologyWarnings?.find(
+      (w) => w.kind === "price-coverage",
+    );
+    expect(coverage).toBeDefined();
+  });
+});

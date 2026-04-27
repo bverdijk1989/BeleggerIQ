@@ -1,5 +1,6 @@
 import type {
   BacktestConfig,
+  BacktestMethodologyWarning,
   BacktestResult,
   BenchmarkComparison,
   EquityPoint,
@@ -162,6 +163,12 @@ export function runBacktest(input: RunBacktestInput): BacktestResult {
   const turnover =
     config.initialCapital > 0 ? totalCosts / config.initialCapital : 0;
 
+  const methodologyWarnings = detectMethodologyWarnings({
+    members,
+    months,
+    points,
+  });
+
   return {
     config,
     equityCurve: points,
@@ -177,7 +184,85 @@ export function runBacktest(input: RunBacktestInput): BacktestResult {
     finalValue,
     tradesCount: tradeCount,
     benchmark: buildBenchmarkComparison(benchmarkSeries, benchmark, config),
+    methodologyWarnings,
   };
+}
+
+// ============================================================
+//  Methodologie-warnings (Asness/Simons-laag)
+// ============================================================
+
+interface DetectMethodologyArgs {
+  members: BacktestUniverseEntry[];
+  months: string[];
+  points: EquityPoint[];
+}
+
+/**
+ * Maakt expliciet welke methodologie-tekortkomingen aan deze backtest
+ * kleven. **Voorkomt overconfidence in synthetisch goede Sharpes.**
+ *
+ *  - **Survivorship-bias**: een statisch universe (geen joiners/leavers)
+ *    in een lange backtest is een rode vlag — alleen overlevers staan
+ *    erin, gefailde namen ontbreken. Werkelijke historische rendementen
+ *    waren typisch lager.
+ *  - **Small-sample**: < 36 maanden levert statistisch zwakke
+ *    Sharpe/Sortino — ratio's hebben grote betrouwbaarheidsintervallen.
+ *  - **Price-coverage gaps**: ten minste één lid mist > 25% van de
+ *    maanden in de backtest-periode → equity curve heeft vlakke
+ *    segmenten waar de positie geen herwaardering kreeg.
+ *
+ * Look-ahead-bias is niet automatisch detecteerbaar (afhankelijk van
+ * strategy-implementatie) — daarom audit-warning op call-site.
+ */
+function detectMethodologyWarnings(
+  args: DetectMethodologyArgs,
+): BacktestMethodologyWarning[] {
+  const warnings: BacktestMethodologyWarning[] = [];
+
+  if (args.points.length > 0 && args.points.length < 36) {
+    warnings.push({
+      kind: "small-sample",
+      severity: 0.7,
+      message: `Backtest beslaat slechts ${args.points.length} maand${args.points.length === 1 ? "" : "en"} — Sharpe/Sortino zijn statistisch onzeker (richtlijn: ≥ 36 maanden).`,
+    });
+  }
+
+  // Survivorship-heuristiek: meer dan 60 maanden + minder dan 5 leden +
+  // alle leden hebben monthly-data over de hele periode → universe is
+  // waarschijnlijk de "today's snapshot" zonder gefailde namen.
+  if (args.points.length >= 60 && args.members.length > 0) {
+    const allFullCoverage = args.members.every((m) => {
+      const present = new Set(m.monthly.map((b) => b.date));
+      const overlap = args.months.filter((mo) => present.has(mo)).length;
+      return overlap / args.months.length >= 0.95;
+    });
+    if (allFullCoverage) {
+      warnings.push({
+        kind: "survivorship",
+        severity: 0.6,
+        message: `Universe is statisch (${args.members.length} leden over ${args.points.length} maanden, geen joiners/leavers) — backtest mist gefailde namen; werkelijke rendementen waren waarschijnlijk lager.`,
+      });
+    }
+  }
+
+  // Price-coverage gap: ten minste één lid mist > 25% van de maanden.
+  if (args.members.length > 0 && args.months.length > 12) {
+    const offenders = args.members.filter((m) => {
+      const present = new Set(m.monthly.map((b) => b.date));
+      const overlap = args.months.filter((mo) => present.has(mo)).length;
+      return overlap / args.months.length < 0.75;
+    });
+    if (offenders.length > 0) {
+      warnings.push({
+        kind: "price-coverage",
+        severity: 0.5,
+        message: `${offenders.length} ticker${offenders.length === 1 ? "" : "s"} mist meer dan 25% van de maand-prijsdata — engine gebruikte laatst-bekende koers (vlakke segmenten).`,
+      });
+    }
+  }
+
+  return warnings;
 }
 
 // ============================================================

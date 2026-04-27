@@ -76,9 +76,32 @@ export interface FactorScoringInput {
 }
 
 /**
+ * Coverage-drempel waaronder een sub-score als "onvoldoende data" wordt
+ * behandeld voor de composite-berekening.
+ *
+ * Asness/Simons-rationale: een momentum-pillar met 1 van 4 signalen
+ * heeft `coverage = 0.25`, maar werd voorheen gewoon meegewogen in de
+ * composite. Dat is **fake precision** — een composite van 65 op basis
+ * van 1 signaal suggereert meer overtuiging dan er statistisch is.
+ *
+ * Sub-scores onder deze drempel blijven zichtbaar in `subScores` (UI-
+ * weergave), maar tellen **niet** mee in de composite. Wanneer minder
+ * dan `MIN_PILLARS_FOR_COMPOSITE` pillars overblijven wordt composite
+ * naar 50 geforceerd en confidence geclamped op
+ * `MAX_CONFIDENCE_LOW_COVERAGE`.
+ */
+export const MIN_COVERAGE_FOR_COMPOSITE = 0.5;
+export const MIN_PILLARS_FOR_COMPOSITE = 2;
+export const MAX_CONFIDENCE_LOW_COVERAGE = 0.3;
+
+type PillarKey = "quality" | "value" | "momentum" | "lowVol";
+type ReliablePillars = Record<PillarKey, boolean>;
+
+/**
  * Kern-API: bouwt een volledige `FactorScore` voor één ticker.
- * Veilig bij missende velden — elke sub-score krijgt minimaal 50 (neutraal)
- * terug en de composite weight-average houdt daar rekening mee.
+ * Veilig bij missende velden — sub-scores onder de coverage-drempel
+ * worden uit de composite-berekening gehouden om fake precision te
+ * voorkomen.
  */
 export function scoreFactors(
   input: FactorScoringInput,
@@ -100,48 +123,77 @@ export function scoreFactors(
     lowVol: risk.score,
   };
 
-  const composite = computeComposite(subScores, weights);
+  const reliablePillars: ReliablePillars = {
+    quality: quality.coverage >= MIN_COVERAGE_FOR_COMPOSITE,
+    value: value.coverage >= MIN_COVERAGE_FOR_COMPOSITE,
+    momentum: momentum.coverage >= MIN_COVERAGE_FOR_COMPOSITE,
+    lowVol: risk.coverage >= MIN_COVERAGE_FOR_COMPOSITE,
+  };
+  const reliableCount = Object.values(reliablePillars).filter(Boolean).length;
+
+  const composite =
+    reliableCount >= MIN_PILLARS_FOR_COMPOSITE
+      ? computeComposite(subScores, weights, reliablePillars)
+      : 50;
 
   const rationales: FactorRationales = {
     quality: quality.rationales,
     value: value.rationales,
     momentum: momentum.rationales,
     lowVol: risk.rationales,
-    composite: buildCompositeRationale(subScores, weights, composite),
+    composite: buildCompositeRationale(
+      subScores,
+      weights,
+      composite,
+      reliableCount,
+    ),
   };
 
   const coverageSignals = [quality, value, momentum, risk];
-  const confidence =
+  const rawConfidence =
     coverageSignals.reduce((sum, s) => sum + s.coverage, 0) /
     coverageSignals.length;
+  const confidence =
+    reliableCount >= MIN_PILLARS_FOR_COMPOSITE
+      ? clamp(rawConfidence, 0, 1)
+      : Math.min(MAX_CONFIDENCE_LOW_COVERAGE, clamp(rawConfidence, 0, 1));
 
   return {
     ticker: input.ticker,
     asOf: input.asOf ?? new Date().toISOString(),
     subScores,
     composite,
-    confidence: clamp(confidence, 0, 1),
+    confidence,
     model: "beleggeriq.v1",
     weights,
     rationales,
   };
 }
 
-/** Gewogen gemiddelde van de vier kern-sub-scores. */
+/**
+ * Gewogen gemiddelde van de sub-scores. Wanneer `reliable` is gegeven,
+ * worden alleen pillars met `reliable[key] === true` meegenomen — pillars
+ * met te weinig coverage tellen niet mee om fake precision te
+ * voorkomen.
+ */
 export function computeComposite(
   subScores: FactorSubScores,
   weights: FactorWeights,
+  reliable?: ReliablePillars,
 ): number {
-  const entries: Array<[number, number]> = [
-    [subScores.quality, weights.quality],
-    [subScores.value, weights.value],
-    [subScores.momentum, weights.momentum],
-    [subScores.lowVol, weights.lowVol],
+  const entries: Array<[PillarKey, number, number]> = [
+    ["quality", subScores.quality, weights.quality],
+    ["value", subScores.value, weights.value],
+    ["momentum", subScores.momentum, weights.momentum],
+    ["lowVol", subScores.lowVol, weights.lowVol],
   ];
-  const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
+  const filtered = reliable
+    ? entries.filter(([key]) => reliable[key])
+    : entries;
+  const totalWeight = filtered.reduce((sum, [, , w]) => sum + w, 0);
   if (totalWeight === 0) return 50;
   const weighted =
-    entries.reduce((sum, [score, weight]) => sum + score * weight, 0) /
+    filtered.reduce((sum, [, score, weight]) => sum + score * weight, 0) /
     totalWeight;
   return Math.round(clamp(weighted, 0, 100));
 }
@@ -150,6 +202,7 @@ function buildCompositeRationale(
   subScores: FactorSubScores,
   weights: FactorWeights,
   composite: number,
+  reliableCount?: number,
 ): string[] {
   const entries: Array<[keyof FactorSubScores, number, number, string]> = [
     ["quality", subScores.quality, weights.quality, "Quality"],
@@ -187,6 +240,14 @@ function buildCompositeRationale(
   const rationales: string[] = [
     `Composite score ${composite}/100 — ${grade} profiel.`,
   ];
+  if (
+    typeof reliableCount === "number" &&
+    reliableCount < MIN_PILLARS_FOR_COMPOSITE
+  ) {
+    rationales.push(
+      `Onvoldoende data (${reliableCount}/4 pillars met voldoende coverage) — composite gehouden op neutraal en confidence beperkt.`,
+    );
+  }
   if (topPositive) {
     rationales.push(
       `${topPositive.label} trekt de score omhoog (${topPositive.score}/100).`,
