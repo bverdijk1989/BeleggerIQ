@@ -2,6 +2,140 @@
 
 Alle noemenswaardige wijzigingen aan BeleggerIQ 2.0. Formaat volgt [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/).
 
+## [Unreleased] - 2026-04-27 · UX & Behavioral Finance (Kahneman / Thaler)
+
+### Persona-samenvatting
+
+**Daniel Kahneman — biases & irrationeel gedrag:**
+> "De header 'Wat moet je NU doen?' is een directe activatie van
+> System 1 — beslissen-onder-tijdsdruk. Dat is precies waar
+> beleggers fouten maken. Maak 'm reflectief: 'Aandachtspunten
+> vandaag', en geef de gebruiker een System-2-pauze bij grote
+> verkopen. Een 'slaap er een nacht over'-prompt voorkomt dat een
+> paniek-impuls in de avond een trade in de ochtend wordt." →
+> **Beide gefixt.**
+
+**Richard Thaler — nudging & beslisgedrag:**
+> "Default-action moet 'doe niets' zijn, niet 'koop nu'. Voeg een
+> nudge toe die expliciet stelt dat niets-doen altijd een geldige
+> optie is, en dat adviezen 14 dagen geldig blijven. Dat is geen
+> cop-out — dat is bescherming tegen action-bias. Verder: rode
+> 'HIGH'-pill op een BUY-actie is een FOMO-trigger. Soften naar
+> NL-woorden zonder all-caps." → **Gefixt.**
+
+### UX bias-audit
+
+| Bias | Status | Toelichting |
+|---|---|---|
+| **Action bias** | **Gefixt** | Header copy: "Wat moet je NU doen?" → "Aandachtspunten vandaag". Niets-doen-nudge onder transactie-acties. |
+| **Urgency framing** | **Gefixt** | "HIGH/MEDIUM/LOW"-all-caps → "Belangrijk / Aandacht / Nuttig om te weten". |
+| **FOMO via rode badges** | **Gefixt** | URGENCY_BADGE.HIGH was rood voor alle types; nu rood alleen voor RISK_REDUCTION. BUY-acties krijgen amber. |
+| **Panic-selling reflex** | **Gefixt** | HIGH-urgency RISK_REDUCTION krijgt System-2 nudge: "Slaap er een nacht over voordat je een grote verkoop uitvoert." |
+| **Overconfidence op hoge scores** | **OK** | Score < 60% confidence: amber-warning. Score ≥ 60: geen urgency-trigger; alleen rationale. |
+| **Jargon** | **OK** (vorige UX-polish) | TE/alpha/HHI al hertaald naar NL. |
+| **Geen 'doe niets'-affordance** | **Gefixt** | Niets-doen-nudge expliciet aanwezig + 14-dagen-geldigheidsclaim verbinding met DecisionHistory. |
+| **Confidence ≠ certainty** | **OK** | Confidence-band toont "data is beperkt; dubbel-check" wanneer < 60%. |
+| **Sunk-cost (uitgevoerd-flag)** | **OK** | DecisionHistory-status MARKED_DONE laat user reflecteren. |
+| **Recency-bias door scrolling** | **Open** | Geen tijd-gewogen weergave; recente cards staan bovenaan zonder context "geldig vanaf X". *P3.* |
+
+### Verbeterde microcopy (vóór → na)
+
+| Component | Vóór | Na |
+|---|---|---|
+| PrimaryActionBar header | "Wat moet je NU doen?" | "Aandachtspunten vandaag" |
+| PrimaryActionBar subkop | "3 concrete acties (max 3) uit risk-, rebalance-, action- en allocation-engines." | "3 punten om te overwegen (max 3). Geen verplichting om vandaag te handelen." |
+| ActionCard urgency-pill | `HIGH` (rood) | `Belangrijk` (amber, behalve voor RISK_REDUCTION → rood) |
+| ActionCard urgency-pill | `MEDIUM` | `Aandacht` |
+| ActionCard urgency-pill | `LOW` | `Nuttig om te weten` |
+| HIGH RISK_REDUCTION footer | (geen) | "Slaap er een nacht over voordat je een grote verkoop uitvoert. De engine signaleert het probleem; jij houdt de eindbeslissing." |
+| Empty state | "Geen directe actie nodig — engines geven geen sterke trigger op dit moment." | "Geen punten om vandaag te overwegen — engines zien geen sterke triggers. Een rustige dag in je portefeuille." |
+
+### Nudges — nieuw geïntroduceerd
+
+1. **Niets-doen-nudge** onder PrimaryActionBar wanneer er minimaal één
+   transactie-actie aanwezig is (RISK_REDUCTION of BUY_OPPORTUNITY):
+   > "Niets doen vandaag is altijd een geldige optie. Adviezen blijven
+   > 14 dagen geldig — neem de tijd om te beslissen, of slaap er een
+   > nacht over voor je een grote actie uitvoert."
+2. **System-2-pauze** op HIGH-urgency RISK_REDUCTION cards:
+   > "Slaap er een nacht over voordat je een grote verkoop uitvoert."
+3. **Reflectief in plaats van imperatief** in header — verschuift
+   user-mindset van "moet" naar "kan overwegen".
+
+### Frictiepunten op risicovolle acties
+
+- **HIGH RISK_REDUCTION**: System-2 nudge ("slaap er een nacht over").
+- **HIGH BUY_OPPORTUNITY**: amber pill (geen rode FOMO-pill).
+- **DecisionHistory**: 14-dagen-TTL met explicite optie "Markeer als
+  genegeerd" — geeft user sociale-account-trail van overwogen-niet-
+  uitgevoerd-besluiten.
+- **AiExplainPanel collapsed-by-default**: gebruiker moet actief op
+  "Leg dit advies uit" klikken voor de engine-rationale verschijnt;
+  geen passieve advies-stroom.
+
+### Frictiepunten — aanbevolen voor toekomstige iteratie
+
+| Prio | Component | Verbetering |
+|---|---|---|
+| **P1** | `risk-action-card.tsx` | "Bevestig: ik heb deze actie overwogen" checkbox bij HIGH severity, voor expliciete acknowledgement vóór `MARKED_DONE`. |
+| **P1** | `dashboard/page.tsx` | Globale compliance-banner onderaan: "Indicatief, geen beleggingsadvies. Eindverantwoordelijkheid bij gebruiker." |
+| **P2** | `decision-history-preview.tsx` | "Markeer alle als overwogen"-batch knop voor een schone Adviesgeschiedenis. |
+| **P2** | `opportunity-panel.tsx` | "Wachten op target" als default-suggestie voor LOW-confidence opportunities (al nudged via prioritizer). |
+| **P3** | `ai-explain-panel.tsx` | "Engine-disagreement"-warning als RiskAction + Opportunity tegen elkaar wijzen op zelfde ticker. |
+
+### Verbeteringen — geïmplementeerd in deze diff
+
+#### `src/components/dashboard/decision-cockpit/primary-action-bar.tsx`
+- Header copy hertaald: "Wat moet je NU doen?" → "Aandachtspunten vandaag".
+- Subkop hertaald: "concrete acties" → "punten om te overwegen. Geen verplichting om vandaag te handelen."
+- **`DoNothingNudge`** sub-component toegevoegd: rendert onder cards
+  wanneer minimaal één transactie-actie (RISK_REDUCTION/BUY_OPPORTUNITY)
+  aanwezig is. Dashed border + Clock-icoon + Thaler-style boodschap.
+- Empty-state copy hertaald.
+
+#### `src/components/dashboard/decision-cockpit/action-card.tsx`
+- **`URGENCY_BADGE`** kleur-mapping aangepast: HIGH was uniform rood;
+  is nu amber voor alle types behalve RISK_REDUCTION (waar rood
+  blijft, want kapitaalbehoud).
+- **`URGENCY_BADGE_RISK_HIGH`** constante voor de specifieke RISK
+  HIGH-rode pill.
+- **`URGENCY_LABEL`** NL-mapping: HIGH → "Belangrijk", MEDIUM → "Aandacht",
+  LOW → "Nuttig om te weten". Vervangt all-caps "HIGH/MEDIUM/LOW".
+- **System-2 nudge** voor HIGH-urgency RISK_REDUCTION: rendert een
+  Moon-icoon + "Slaap er een nacht over"-zin. Niet voor andere
+  type-action combinaties — zou anders ruis creëren.
+
+### Scorecard (1-5; 5 = beste)
+
+| Component | Vóór audit | Na audit | Toelichting |
+|---|---|---|---|
+| **Decision Cockpit (overall)** | 3 | **4** | Reflectieve header + niets-doen-nudge. Compliance-banner P1. |
+| **Primary Action Bar** | 3 | **4** | "Aandachtspunten" + Thaler-nudge. |
+| **Risk Action Cards** | 4 | 4 | Severity-driven kleur OK; explicit "ik heb overwogen"-checkbox is P1. |
+| **Opportunity Panel** | 4 | 4 | "onderzoeken / kleine bijkoop / wachten op target" is al goed Thaler-friendly. |
+| **Allocation Preview** | 4 | 4 | "Indicatief — geen orders" disclaimer aanwezig. |
+| **AI Explain Panel** | 4 | 4 | Collapsed-by-default + disclaimer. |
+| **Decision History** | 4 | 4 | "Geen broker-koppeling — 'Gedaan' is eigen notitie" disclaimer. |
+| **Overall behavioral safety** | 3 | **4** | Action-bias / FOMO / urgency framing afgevlakt. |
+
+### Validatie
+- `npm test` → **1117/1117 tests groen** (geen test-breakage door UX-polish).
+- `npx tsc --noEmit` → schoon.
+- `npm run build` → slaagt.
+
+### Aannames
+- **HIGH-rood reserveren voor RISK_REDUCTION** (kapitaalbehoud);
+  andere HIGH's krijgen amber. Voorkomt dat de UI "koop nu"-rood
+  toont naast een buy-action.
+- **System-2 nudge alleen op HIGH RISK_REDUCTION** — bij MEDIUM of
+  bij BUY zou het ruis worden. Drempel komt overeen met "Slaap er
+  een nacht over" alleen voor grote verkopen.
+- **NL-labels niet all-caps**: "Belangrijk" (sentence case) is
+  rustiger dan "BELANGRIJK".
+- **Niets-doen-nudge** wordt alleen getoond bij minimaal één
+  transactie-actie. Bij alleen HOLD_CASH/DO_NOTHING verbergt 'm —
+  dan zou de boodschap redundant zijn.
+
 ## [Unreleased] - 2026-04-27 · Risk, Compliance & Reality Check (Taleb / Marks)
 
 ### Persona-samenvatting

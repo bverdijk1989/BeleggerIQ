@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Banknote,
   CheckCircle2,
+  Moon,
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
@@ -66,10 +67,35 @@ const TYPE_META: Record<
   },
 };
 
+/**
+ * Urgentie wordt zachter ingekleurd dan voorheen — Kahneman-laag:
+ * een felle rode HIGH-pill bij elk type-actie creëert action-bias en
+ * urgency-pressure. Voor RISK_REDUCTION blijft rood (kapitaalbehoud);
+ * andere types krijgen amber bij HIGH zodat BUY nooit een rode "koop
+ * nu"-noot heeft.
+ */
 const URGENCY_BADGE: Record<DashboardActionUrgency, string> = {
-  HIGH: "border-red-500/40 bg-red-500/10 text-red-200",
-  MEDIUM: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  HIGH: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  MEDIUM: "border-amber-500/30 bg-amber-500/5 text-amber-200",
   LOW: "border-muted-foreground/30 bg-surface-elevated text-muted-foreground",
+};
+
+/**
+ * Risk-only HIGH-styling: alleen bij `RISK_REDUCTION` mag de pill
+ * rood worden. Voorkomt rode FOMO-pillen op BUY-acties.
+ */
+const URGENCY_BADGE_RISK_HIGH =
+  "border-destructive/40 bg-destructive/10 text-destructive";
+
+/**
+ * NL-labels voor urgency. "HIGH/MEDIUM/LOW" all-caps voelt clinical
+ * en agressief; gewone NL-woorden zijn rustiger en minder pressure-
+ * driven.
+ */
+const URGENCY_LABEL: Record<DashboardActionUrgency, string> = {
+  HIGH: "Belangrijk",
+  MEDIUM: "Aandacht",
+  LOW: "Nuttig om te weten",
 };
 
 export function ActionCard({ action, baseCurrency, rankLabel }: Props) {
@@ -108,11 +134,13 @@ export function ActionCard({ action, baseCurrency, rankLabel }: Props) {
               </span>
               <span
                 className={cn(
-                  "rounded-md border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
-                  URGENCY_BADGE[action.urgency],
+                  "rounded-md border px-2 py-0.5 text-[10px] font-medium tracking-wider",
+                  action.urgency === "HIGH" && action.type === "RISK_REDUCTION"
+                    ? URGENCY_BADGE_RISK_HIGH
+                    : URGENCY_BADGE[action.urgency],
                 )}
               >
-                {action.urgency}
+                {URGENCY_LABEL[action.urgency]}
               </span>
               {rankLabel && (
                 <span className="rounded-sm bg-surface-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
@@ -156,6 +184,17 @@ export function ActionCard({ action, baseCurrency, rankLabel }: Props) {
           <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
             Confidence {(action.confidence * 100).toFixed(0)}% — data is
             beperkt; dubbel-check voor je actie onderneemt.
+          </p>
+        )}
+
+        {action.urgency === "HIGH" && action.type === "RISK_REDUCTION" && (
+          <p className="flex items-start gap-1.5 rounded-md border border-border/40 bg-surface-elevated/40 px-2 py-1 text-[11px] text-muted-foreground">
+            <Moon className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+            <span>
+              Slaap er een nacht over voordat je een grote verkoop
+              uitvoert. De engine signaleert het probleem; jij houdt de
+              eindbeslissing.
+            </span>
           </p>
         )}
       </CardContent>
