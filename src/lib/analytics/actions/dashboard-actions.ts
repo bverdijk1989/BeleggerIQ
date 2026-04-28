@@ -1,4 +1,5 @@
-import type { ActionPlan, PositionAction } from "./types";
+import type { ActionPlan, ActionSource, PositionAction } from "./types";
+import { computeRedeploy, type RegimeStanceTier } from "./redeploy-budget";
 import type { AllocationPlan } from "@/types/allocation";
 import type { AssetClass } from "@/types/portfolio";
 import type { PolicySettings, RiskTolerance } from "@/types/profile";
@@ -70,6 +71,33 @@ export interface DashboardAction {
   /** Korte reason-string uit de bron (bv. action-engine rationale). */
   reason: string;
   sourceEngine: DashboardActionSource;
+  /**
+   * Welke engines droegen bij aan dit signaal — voor traceability in de
+   * UI ("factor-engine · risk-engine") en voor diagnostiek wanneer twee
+   * engines tegen elkaar in werken.
+   */
+  triggerSources?: ActionSource[];
+  /**
+   * Bij `RISK_REDUCTION`: gekoppelde herinvesteringssuggestie zodat de
+   * proceeds van een SELL niet als idle cash blijven liggen. Pure data;
+   * UI bepaalt of 'em als secundaire sectie binnen dezelfde kaart wordt
+   * getoond. Regime-aware: 80% in RISK_ON/NEUTRAL, 60% in DEFENSIVE.
+   */
+  pairedBuy?: PairedBuySuggestion | null;
+}
+
+export interface PairedBuySuggestion {
+  /** Symbool van de kandidaat-target (uit het allocation-plan). */
+  symbol: string;
+  name: string | null;
+  /** Bedrag in base-currency dat we voorstellen om te herinvesteren. */
+  amount: number;
+  /** Fractie van proceeds (bv. 0.8 of 0.6). */
+  redeployFraction: number;
+  /** Cash dat bewust achterblijft als buffer (proceeds - amount). */
+  reservedCash: number;
+  /** Korte uitleg waarom dit bedrag + deze ticker. */
+  rationale: string;
 }
 
 export interface BuildDashboardActionsInput {
@@ -142,16 +170,45 @@ export function buildDashboardPrimaryActions(
   const candidates: DashboardAction[] = [];
 
   // --- 1. RISK_REDUCTION ---
+  const stanceTier = mapStanceTier(input.regime);
   for (const action of input.actionPlan.positions) {
     if (action.action !== "TRIM" && action.action !== "SELL") continue;
-    candidates.push(
-      toRiskAction(
-        action,
-        input.rebalanceRecommendations,
-        input.assetClassByTicker,
-        riskAverse,
-      ),
+    const card = toRiskAction(
+      action,
+      input.rebalanceRecommendations,
+      input.assetClassByTicker,
+      riskAverse,
     );
+    if (!card) continue; // gefiltered: SELL zonder zinvol aantal
+
+    // **Paired BUY (Fix B).** Voor elke RISK_REDUCTION kaart koppelen
+    // we een redeploy-suggestie. Regime-aware: 80% in RISK_ON/NEUTRAL,
+    // 60% in DEFENSIVE — extra cash blijft als droog kruit voor
+    // latere koopjes (Druckenmiller/Marks-laag).
+    const proceeds = card.amount ?? 0;
+    if (proceeds > 0) {
+      const redeploy = computeRedeploy({
+        proceeds,
+        stance: stanceTier,
+        allocationPlan: input.allocationPlan,
+        excludeSymbol: card.symbol ?? null,
+      });
+      if (redeploy.target) {
+        card.pairedBuy = {
+          symbol: redeploy.target.ticker,
+          name: redeploy.target.name,
+          amount: redeploy.target.amount,
+          redeployFraction: redeploy.redeployFraction,
+          reservedCash: redeploy.reservedCash,
+          rationale: redeploy.reasoning,
+        };
+      } else {
+        // Geen kandidaat → geen pairedBuy. UI laat 'em weg, of toont
+        // een neutrale "geen geschikte ticker"-melding.
+        card.pairedBuy = null;
+      }
+    }
+    candidates.push(card);
   }
 
   // --- 2. BUY_OPPORTUNITY uit action-engine ---
@@ -208,6 +265,21 @@ export function buildDashboardPrimaryActions(
   return candidates.slice(0, max);
 }
 
+/**
+ * Map de regime-stance naar de tier-input voor `computeRedeploy`. We
+ * gebruiken `score`-bands wanneer beschikbaar (regime-engine output)
+ * met een fallback op de directe stance. UNKNOWN/null → NEUTRAL als
+ * default (80% redeploy).
+ */
+function mapStanceTier(
+  regime: MarketRegimeScore | null | undefined,
+): RegimeStanceTier {
+  if (!regime) return "NEUTRAL";
+  if (regime.stance === "RISK_ON") return "RISK_ON";
+  if (regime.stance === "DEFENSIVE") return "DEFENSIVE";
+  return "NEUTRAL";
+}
+
 // ============================================================
 //  Builders per type (pure)
 // ============================================================
@@ -217,20 +289,26 @@ function toRiskAction(
   recs: RebalanceRecommendation[],
   assetClassByTicker: Map<string, AssetClass> | undefined,
   riskAverse: boolean,
-): DashboardAction {
+): DashboardAction | null {
   // Hergebruik rebalance-quantityPlan voor de letterlijke afbouw-tekst.
   const rec = recs.find((r) => r.ticker === action.symbol) ?? null;
   const plan = rec?.quantityPlan ?? action.quantityPlan ?? null;
-  const shares =
-    plan?.sharesToSell !== undefined && plan.sharesToSell > 0
-      ? plan.sharesToSell
-      : action.sharesToSell;
-  const amount =
-    plan?.amountToSell !== undefined && plan.amountToSell > 0
-      ? plan.amountToSell
-      : action.amount;
 
-  const verb = action.action === "SELL" ? "Verkoop" : "Bouw";
+  // Eerst de plan-quantity, anders de action-engine quantity.
+  const planShares = plan?.sharesToSell ?? 0;
+  const planAmount = plan?.amountToSell ?? 0;
+  const shares = planShares > 0 ? planShares : action.sharesToSell;
+  const amount = planAmount > 0 ? planAmount : action.amount;
+
+  // **Anti-tegenstrijdigheid (Fix A).** Drop de kaart wanneer noch het
+  // rebalance-plan noch de action-engine een zinvol aantal/bedrag
+  // produceert — dan zou de UI "Verkoop NAAM" tonen onder een uitleg die
+  // zegt dat verkoop niet nodig is. Een SELL zonder hoeveelheid is geen
+  // beslissing waar de gebruiker iets mee kan.
+  if (shares <= 0 && amount <= 0) {
+    return null;
+  }
+
   const assetClass = assetClassByTicker?.get(action.symbol) ?? null;
   const unitNoun = unitNounFor(assetClass, shares);
   const title =
@@ -238,28 +316,48 @@ function toRiskAction(
       ? action.action === "SELL"
         ? `Verkoop ${formatShares(shares)} ${unitNoun} ${action.name}`
         : `Bouw ${action.name} met ${formatShares(shares)} ${unitNoun} af`
-      : `${verb} ${action.name}`;
+      : action.action === "SELL"
+        ? `Bouw ${action.name} af voor ~€${Math.round(amount).toLocaleString("nl-NL")}`
+        : `Bouw ${action.name} af voor ~€${Math.round(amount).toLocaleString("nl-NL")}`;
+
+  // **Description (Fix A).** De action-engine kent de daadwerkelijke
+  // SELL-trigger (factor-engine, risk-engine, …). De rebalance-engine
+  // ziet alleen gewicht-vs-cap. Wanneer beide het oneens zijn (rebalance
+  // zegt "geen verkoop nodig" terwijl action-engine SELL emit op
+  // risk-as), is de action-rationale de juiste uitleg. We pakken
+  // rebalance-reason ALLEEN wanneer 'em consistent is met SELL
+  // (sharesToSell > 0 in de plan).
+  const description =
+    planShares > 0 && plan?.reason && plan.reason.trim().length > 0
+      ? plan.reason
+      : action.rationale;
 
   // Risk-averse profiel: bevorder MEDIUM-urgency RISK-acties naar HIGH
   // zodat ze ook de urgency-sortering winnen. LOW blijft LOW.
   const urgency: DashboardActionUrgency =
     riskAverse && action.urgency === "MEDIUM" ? "HIGH" : action.urgency;
 
+  // Zorg dat triggerSources altijd 'action-engine' bevat wanneer geen
+  // bron expliciet meegegeven is — empty list zou misleidend zijn voor
+  // de UI-badge.
+  const triggerSources: ActionSource[] =
+    action.sources && action.sources.length > 0
+      ? action.sources
+      : ["risk-engine"];
+
   return {
     id: `RISK_REDUCTION:${action.symbol}`,
     type: "RISK_REDUCTION",
     title,
-    description:
-      plan?.reason && plan.reason.trim().length > 0
-        ? plan.reason
-        : action.rationale,
+    description,
     urgency,
     amount: amount > 0 ? Math.round(amount) : undefined,
     shares: shares > 0 ? shares : undefined,
     symbol: action.symbol,
     confidence: action.confidence,
     reason: action.riskImpact || action.rationale,
-    sourceEngine: rec ? "rebalance-engine" : "action-engine",
+    sourceEngine: planShares > 0 && rec ? "rebalance-engine" : "action-engine",
+    triggerSources,
   };
 }
 

@@ -1,5 +1,6 @@
 import {
   ArrowDownRight,
+  ArrowRightLeft,
   ArrowUpRight,
   Banknote,
   CheckCircle2,
@@ -195,6 +196,38 @@ export function ActionCard({ action, baseCurrency, rankLabel }: Props) {
               uitvoert. De engine signaleert het probleem; jij houdt de
               eindbeslissing.
             </span>
+          </p>
+        )}
+
+        {/* Paired-BUY sectie (Fix B) — alleen bij RISK_REDUCTION met
+            een gekoppelde redeploy-suggestie. Visueel onderdeel van
+            dezelfde kaart zodat SELL + redeploy als één beslissing
+            scant (Druckenmiller/Kahneman-laag). */}
+        {action.type === "RISK_REDUCTION" && action.pairedBuy && (
+          <div className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2">
+            <div className="flex items-center gap-1.5">
+              <ArrowRightLeft className="h-3 w-3 text-primary" />
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                Herinvesteer · {Math.round(action.pairedBuy.redeployFraction * 100)}%
+              </p>
+            </div>
+            <p className="mt-1 text-xs font-semibold text-foreground">
+              Koop {action.pairedBuy.name ?? action.pairedBuy.symbol} voor ~
+              {formatCurrency(action.pairedBuy.amount, baseCurrency, {
+                maximumFractionDigits: 0,
+              })}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {action.pairedBuy.rationale}
+            </p>
+          </div>
+        )}
+
+        {/* Trigger-sources (Fix C) — klein, secundair, monospace.
+            Geeft de gebruiker zicht op WELKE engines het signaal afgaven. */}
+        {action.triggerSources && action.triggerSources.length > 0 && (
+          <p className="font-mono text-[10px] text-muted-foreground">
+            bron: {action.triggerSources.join(" · ")}
           </p>
         )}
       </CardContent>
