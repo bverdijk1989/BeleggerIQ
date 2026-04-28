@@ -1,0 +1,17 @@
+# BeleggerIQ — wekelijkse restore-test timer.
+#
+# Draait zondag 04:30 (na de 03:15 backup). Ruim 1u marge zodat een
+# trage upload niet samenvalt met de restore-test.
+
+[Unit]
+Description=BeleggerIQ backup restore-test — weekly timer
+Requires=beleggeriq-restore-test.service
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=beleggeriq-restore-test.service
+
+[Install]
+WantedBy=timers.target

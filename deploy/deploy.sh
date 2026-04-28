@@ -11,8 +11,10 @@
 #   cd /var/www/beleggeriq
 #   ./deploy.sh                     # pull main, build, migrate, swap, restart
 #   ./deploy.sh <git-ref>           # specifieke tag/commit
+#   ./deploy.sh --rollback          # zwap `current` naar de vorige release
+#   ./deploy.sh --rollback <stamp>  # zwap naar specifieke release-stamp
 #
-# Rollback:
+# Rollback handmatig (zonder script):
 #   ln -sfn /var/www/beleggeriq/releases/<prev> /var/www/beleggeriq/current
 #   sudo systemctl restart beleggeriq
 
@@ -20,8 +22,41 @@ set -euo pipefail
 
 BASE=/var/www/beleggeriq
 REPO_URL="${REPO_URL:-https://github.com/bverdijk1989/BeleggerIQ.git}"
-REF="${1:-main}"
 KEEP_RELEASES=5
+
+# ============================================================
+#  Rollback-mode — geen clone, geen build, alleen symlink swap.
+# ============================================================
+if [ "${1:-}" = "--rollback" ]; then
+    TARGET_STAMP="${2:-}"
+    if [ ! -d "$BASE/releases" ]; then
+        echo "ERROR: $BASE/releases ontbreekt — nog geen deploys gedaan?" >&2
+        exit 1
+    fi
+    CURRENT_STAMP=""
+    if [ -L "$BASE/current" ]; then
+        CURRENT_STAMP=$(basename "$(readlink -f "$BASE/current")")
+    fi
+    if [ -z "$TARGET_STAMP" ]; then
+        # Pak de meest-recente release die niét de huidige `current` is.
+        TARGET_STAMP=$(ls -1t "$BASE/releases" \
+            | grep -v -F -x "$CURRENT_STAMP" \
+            | head -n1)
+    fi
+    if [ -z "$TARGET_STAMP" ] || [ ! -d "$BASE/releases/$TARGET_STAMP" ]; then
+        echo "ERROR: geen geldige rollback-target gevonden (gevraagd: '${2:-<auto>}')." >&2
+        echo "Beschikbare releases:" >&2
+        ls -1t "$BASE/releases" >&2 || true
+        exit 1
+    fi
+    echo "== Rollback van '$CURRENT_STAMP' naar '$TARGET_STAMP' =="
+    ln -sfn "$BASE/releases/$TARGET_STAMP" "$BASE/current"
+    sudo /bin/systemctl restart beleggeriq
+    echo "== Rollback gereed. Huidige release: $TARGET_STAMP =="
+    exit 0
+fi
+
+REF="${1:-main}"
 
 mkdir -p "$BASE/releases" "$BASE/shared"
 
@@ -37,6 +72,16 @@ RELEASE="$BASE/releases/$STAMP"
 echo "== [1/7] Clone $REF naar $RELEASE =="
 git clone --depth 1 --branch "$REF" "$REPO_URL" "$RELEASE"
 cd "$RELEASE"
+
+# Capture build-info in shared envfile zodat /api/health 'm exposeert
+# en monitoring kan zien welke commit in productie draait.
+GIT_SHA=$(git rev-parse HEAD)
+BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > "$BASE/shared/.env.build-info" <<ENV
+BIQ_GIT_SHA=$GIT_SHA
+BIQ_BUILD_TIME=$BUILD_TIME
+ENV
+chmod 0644 "$BASE/shared/.env.build-info"
 
 echo "== [2/7] Symlink shared .env =="
 ln -sf "$BASE/shared/.env.production" .env

@@ -1,0 +1,21 @@
+# BeleggerIQ — backup timer.
+#
+# Draait dagelijks 03:15 server-tijd. RandomizedDelaySec=15min spreidt de
+# load zodat meerdere VPS-instanties niet exact tegelijk pg_dump'pen of
+# de S3-bucket rate-limit raken.
+#
+# Persistent=true zorgt dat een gemiste run (server stond uit) wordt
+# ingehaald zodra de machine weer up is — anders zou je een dag missen.
+
+[Unit]
+Description=BeleggerIQ encrypted Postgres backup — daily timer
+Requires=beleggeriq-backup.service
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=beleggeriq-backup.service
+
+[Install]
+WantedBy=timers.target

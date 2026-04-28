@@ -13,6 +13,10 @@ rollback-pad.
 | [`nginx.conf.example`](./nginx.conf.example) | Reverse-proxy config met security headers en cache-regels |
 | [`beleggeriq.service`](./beleggeriq.service) | systemd unit met hardening (ProtectSystem, NoNewPrivileges) |
 | [`deploy.sh`](./deploy.sh) | Pull + build + migrate + swap; draai als `beleggeriq`-user |
+| [`backup.sh`](./backup.sh) | Daily encrypted Postgres-dump → S3 (zie [docs/BACKUPS.md](../docs/BACKUPS.md)) |
+| [`restore-test.sh`](./restore-test.sh) | Validatie: download laatste backup + `pg_restore --list` (of `--full`) |
+| [`lib/backup-common.sh`](./lib/backup-common.sh) | Gedeelde helpers voor backup/restore (env, encryptie, S3) |
+| [`systemd/`](./systemd/) | Timer + service voor daily backup en wekelijkse restore-test |
 
 ## SSH-poort
 
@@ -112,6 +116,9 @@ sudo systemctl restart beleggeriq
 - [ ] Health-check: `curl -I https://<domain>/dashboard` → redirect naar login of 401 (niet 500).
 - [ ] Logs: `journalctl -u beleggeriq --since today`.
 - [ ] Next.js versie bijgewerkt — 15.0.3 heeft een CVE, upgrade zodra mogelijk.
+- [ ] Backups draaien: `systemctl list-timers | grep beleggeriq-backup`.
+- [ ] Backup-health-endpoint groen: `curl -s https://<domain>/api/health/backup | jq`.
+- [ ] Restore-validatie maandelijks gedraaid (zie [docs/BACKUPS.md](../docs/BACKUPS.md) → "Restore-validatie-log").
 
 ## Wat er NIET in zit (bewuste scope-limits)
 

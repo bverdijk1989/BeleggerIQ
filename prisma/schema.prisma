@@ -32,13 +32,14 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  profile           UserProfile?
-  portfolios        Portfolio[]
-  watchlistItems    WatchlistItem[]
-  huntingSignalLogs HuntingSignalLog[]
-  strategyPresets   StrategyPreset[]
-  backtestRuns      BacktestRun[]
-  decisionSnapshots DecisionSnapshot[]
+  profile                UserProfile?
+  portfolios             Portfolio[]
+  watchlistItems         WatchlistItem[]
+  huntingSignalLogs      HuntingSignalLog[]
+  strategyPresets        StrategyPreset[]
+  backtestRuns           BacktestRun[]
+  decisionSnapshots      DecisionSnapshot[]
+  notificationDeliveries NotificationDelivery[]
 
   @@index([email])
 }
@@ -60,10 +61,14 @@ model UserProfile {
   baseCurrency         String              @default("EUR")
   taxResidency         String              @default("NL")
 
-  goals       Json?
-  preferences Json?
+  goals         Json?
+  preferences   Json?
   /// Gestructureerde PolicySettings (zie src/types/profile.ts).
-  policy      Json?
+  policy        Json?
+  /// NotificationPreferences — { weeklyDigest, instantCriticalAlerts, watchlistAlerts }.
+  /// Zie `src/lib/notifications/preferences.ts` voor de canonieke shape.
+  /// Default (NULL) = alles aan zodat onboarding-users iets ontvangen.
+  notifications Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,6 +94,8 @@ model Portfolio {
   snapshots         PortfolioSnapshot[]
   backtestRuns      BacktestRun[]
   decisionSnapshots DecisionSnapshot[]
+  transactions      Transaction[]
+  taxValuations     TaxValuation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -449,6 +456,158 @@ model DecisionSnapshot {
   @@index([expiresAt])
 }
 
+// ============================================================
+//  TRANSACTIONS — broker-import & cost-basis bron
+// ============================================================
+
+/// Eén broker-uitvoering. Append-only, mutable alleen via correctie-records
+/// (`type=ADJUSTMENT`). De cost-basis-engine (FIFO/LIFO) leest hier z'n
+/// werkelijke exposure uit, zodat realized PnL, fees, dividenden en
+/// withholding-tax voor jaarrapportages reproduceerbaar zijn.
+///
+/// Conventies:
+/// - **`type`** is een TransactionType — BUY/SELL muteren positie,
+///   DIVIDEND/INTEREST/TAX/FEE/CASH/FX zijn cash-only flows.
+/// - **`quantity`/`price`/`fee`** in de **transactiemunt** (`currency`).
+///   Conversie naar base-currency gebeurt aan view-side; we slaan de
+///   originele waarden op zodat re-rate naar EUR achteraf nog kan.
+/// - **`signedAmount`** = (quantity*price ± fee) afhankelijk van type;
+///   genormaliseerde voorteken-conventie staat in
+///   `src/lib/transactions/normalize.ts`. Reden: queries als
+///   "totale fees in 2026" mogen geen typecast nodig hebben.
+/// - **Idempotentie**: unique key `(portfolioId, externalId)` waar
+///   `externalId` typisch een hash is van (executedAt, ticker, qty,
+///   price, source). Re-import van dezelfde CSV → geen duplicaten.
+/// - **`metadata`** Json voor parser-specifieke velden (bv. DEGIRO
+///   "Order Id", "Beurs", FX-rate die de broker noteerde).
+model Transaction {
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  ticker String?
+  isin   String?
+  name   String?
+
+  type TransactionType
+
+  quantity     Decimal? @db.Decimal(20, 8)
+  price        Decimal? @db.Decimal(20, 8)
+  fee          Decimal? @db.Decimal(20, 4)
+  /// Genormaliseerd, ondertekend cash-effect in `currency`. Negatief =
+  /// uitgaande cash (BUY, FEE, TAX), positief = inkomend (SELL, DIVIDEND).
+  signedAmount Decimal? @db.Decimal(20, 4)
+
+  currency String @default("EUR")
+
+  executedAt DateTime
+
+  /// Stabiele dedup-id (typisch hash). Per portfolio uniek zodat re-import
+  /// van dezelfde CSV niet dupliceert.
+  externalId String?
+  source     String? // "degiro" | "manual" | ...
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([portfolioId, externalId])
+  @@index([portfolioId, executedAt])
+  @@index([portfolioId, type, executedAt])
+  @@index([ticker, executedAt])
+}
+
+// ============================================================
+//  TAX — manuele box-3 peildatum-waarderingen
+// ============================================================
+
+/// Handmatig ingevoerde portefeuille-waarde op een peildatum (typisch
+/// 1 jan van het belastingjaar) wanneer er geen `PortfolioSnapshot` is
+/// op of nabij die datum.
+///
+/// Conventies:
+///   - **Eén entry per (portfolio, peilYear).** Unique constraint
+///     voorkomt dubbele invoer; updates gaan via upsert.
+///   - **`asOf`** is altijd een YYYY-01-01 datum. We slaan 'em apart
+///     op zodat de UI eventuele afwijking (bv. 31-12) kan tonen.
+///   - **`baseCurrency`** komt uit de portefeuille; we slaan 'em mee
+///     zodat een latere base-currency-wijziging deze record niet
+///     reinterpreteert.
+model TaxValuation {
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  peilYear     Int
+  asOf         DateTime
+  totalValue   Decimal  @db.Decimal(20, 2)
+  baseCurrency String   @default("EUR")
+  /// Optioneel — broker- of bank-statement waar de waarde vandaan komt.
+  source       String?
+  note         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([portfolioId, peilYear])
+  @@index([portfolioId])
+}
+
+// ============================================================
+//  NOTIFICATIONS
+// ============================================================
+
+/// Append-only log van notificaties die we hebben gegenereerd én van
+/// hun bezorging-status. Twee doelen:
+///
+///   1. **Idempotentie.** Elke event heeft een stabiele `key` (typisch
+///      `<eventType>:<userId>:<bucket>:<salient>`). Eén row per key —
+///      dus dezelfde rebalance-overschrijding triggert geen nieuwe
+///      mail per cron-tick.
+///
+///   2. **Audit-trail.** "Wanneer hebben we welke alert verstuurd?"
+///      Helpt bij compliance + debugging ("kreeg user X de regime-
+///      switch melding wel?").
+///
+/// Conventies:
+///   - `eventType` is een string-enum (zie `NotificationEventType` in
+///     code) — geen Prisma-enum want de set groeit snel en we willen
+///     geen migration-per-toevoeging.
+///   - `key` is unique per (userId, key) — dat is de idempotency-grens.
+///   - `status` muteert in-place (PENDING → SENT/FAILED), `attempts`
+///     telt retries.
+///   - `payload` Json bevat de gerenderde subject + text/html zodat
+///     re-sending mogelijk is zonder de event opnieuw te berekenen.
+model NotificationDelivery {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  eventType String
+  key       String
+  channel   NotificationChannel @default(EMAIL)
+  status    NotificationStatus  @default(PENDING)
+
+  /// Onderwerp + body als gerenderd. Json zodat html optioneel kan zijn.
+  payload Json
+  /// Vrije meta-bag — bv. snapshotId, ticker, regimeBefore/After.
+  context Json?
+
+  attempts  Int     @default(0)
+  lastError String?
+
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+  /// Optioneel: gegroepeerd in een digest-run; dan staat hier de groep-id.
+  digestRunId String?
+
+  @@unique([userId, key])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([eventType, createdAt])
+}
+
 /// Magic-link login token. Single-use, time-bounded.
 ///
 /// Conventies:
@@ -582,4 +741,45 @@ enum DecisionActionType {
   BUY_OPPORTUNITY
   HOLD_CASH
   DO_NOTHING
+}
+
+/// Bezorgkanalen voor notifications. EMAIL is v1; we modelleren ALERT_LOG
+/// als een no-mail variant zodat een gebruiker die mails uitzet wél
+/// nog een in-app log kan zien (zonder het schema later te breken).
+enum NotificationChannel {
+  EMAIL
+  ALERT_LOG
+}
+
+/// Bezorg-status. Een digest-run kan meerdere events SENT_AS_DIGEST
+/// markeren zodat we ze niet later nog eens als instant-alert sturen.
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SUPPRESSED_BY_PREFERENCE
+  SENT_AS_DIGEST
+}
+
+/// Type van een broker-transactie.
+///
+/// - **BUY** / **SELL** muteren `Holding.quantity` en triggeren cost-basis-rekenen.
+/// - **DIVIDEND** is bruto-dividend; bijbehorende bronbelasting komt als losse `TAX`-rij.
+/// - **INTEREST** is broker-rente (debit/credit) op de cash-balans.
+/// - **FEE** zijn losse fees buiten BUY/SELL om (custody, currency-conversion-fees).
+/// - **TAX** is alle vorm van inhouding (DIY-tax, dividend-withholding).
+/// - **CASH** is een storting/opname (deposit/withdrawal).
+/// - **FX** is een EUR↔USD-conversie tussen cash-pots; quantity = bedrag in `currency`,
+///   metadata bevat de tegenovergestelde leg.
+/// - **ADJUSTMENT** is een handmatige correctie (typo, forex-correctie achteraf).
+enum TransactionType {
+  BUY
+  SELL
+  DIVIDEND
+  INTEREST
+  FEE
+  TAX
+  CASH
+  FX
+  ADJUSTMENT
 }

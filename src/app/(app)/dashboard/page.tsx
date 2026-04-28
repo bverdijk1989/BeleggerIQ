@@ -48,7 +48,12 @@ import {
   portfolioRepository,
   portfolioSnapshotRepository,
 } from "@/lib/data";
+import {
+  aggregatePortfolios,
+  resolveActiveSelection,
+} from "@/lib/portfolios";
 
+import { AggregateDashboard } from "./components/aggregate-dashboard";
 import { BenchmarkCard } from "./components/benchmark-card";
 import { HistoryCharts } from "./components/history-charts";
 import { MarketRegimeCard } from "./components/market-regime-card";
@@ -82,19 +87,58 @@ const DEFAULT_BUDGET = 500;
  * Alle businesslogica zit in `@/lib/analytics`-engines + `buildCockpitViewModel`;
  * de page-level component doet alleen I/O + rendering.
  */
-export default async function DashboardPage() {
+interface DashboardPageProps {
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
   const auth = await resolveUserFromServer();
   if (!auth.ok) return <UnauthenticatedState message={auth.error} />;
 
-  const context = await portfolioRepository
-    .findUserContextByEmail(auth.user.email)
-    .catch(() => null);
+  const params = await searchParams;
+  const selection = await resolveActiveSelection({
+    email: auth.user.email,
+    searchParams: params,
+  });
 
-  if (!context || !context.portfolio) {
+  if (selection.kind === "empty") {
     return <NoPortfolioState />;
   }
 
-  const portfolio = context.portfolio;
+  // Aggregate-mode: simpele KPIs + per-portfolio breakdown.
+  if (selection.kind === "all") {
+    const result = aggregatePortfolios(selection.portfolios);
+    return (
+      <>
+        <PageHeader
+          eyebrow="Overzicht"
+          title="Decision Cockpit"
+          description="Aggregaat over al je portefeuilles."
+        />
+        <AggregateDashboard
+          result={result}
+          buildHref={(id) => `/dashboard?p=${id}`}
+        />
+      </>
+    );
+  }
+
+  const ctxLoaded = await portfolioRepository
+    .findUserContextByEmail(auth.user.email)
+    .catch(() => null);
+
+  // `findUserContextByEmail` levert profile/contribution; de feitelijke
+  // portefeuille komt uit de selectie. Als de context-fetch faalt (DB
+  // hick-up) gebruiken we lege defaults — beter degraded UI dan crash.
+  const context = ctxLoaded ?? {
+    userId: "",
+    portfolio: null,
+    profile: null,
+    monthlyContribution: null,
+  };
+  const portfolio = selection.portfolio;
 
   // Parallel fetches: portfolio view + regime + historiek.
   const [view, regimeFetch, snapshots] = await Promise.all([

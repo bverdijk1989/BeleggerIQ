@@ -1,0 +1,101 @@
+name: Deploy
+
+# Auto-deploy op push naar main, met manual-trigger als escape-hatch
+# (handig voor "deploy specifieke commit X").
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (default: main)"
+        required: false
+        default: "main"
+
+# Sequentieel deployen — geen parallelle runs op dezelfde server.
+# `cancel-in-progress: false` omdat we een halverwege gekapte deploy
+# in een onbekende staat willen vermijden.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Resolve deploy ref
+        id: ref
+        run: |
+          REF="${{ github.event.inputs.ref || github.sha }}"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Deploying ref: $REF"
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          # known_hosts wordt gevuld via secret zodat we MITM detecteren.
+          # Eerste-keer setup: `ssh-keyscan -p <port> <host>` lokaal en
+          # zet de output in HETZNER_KNOWN_HOSTS.
+          echo "${{ secrets.HETZNER_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 0644 ~/.ssh/known_hosts
+
+      - name: Run deploy.sh op server
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          USER: ${{ secrets.HETZNER_USER }}
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          ssh -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
+              "cd /var/www/beleggeriq && ./deploy.sh '$REF'"
+
+      - name: Smoke-test /api/health
+        env:
+          URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${URL:-}" ]; then
+            echo "::error::PRODUCTION_URL is niet gezet (repo variable)."
+            exit 1
+          fi
+
+          # Geef Next.js + DB-pool ~30s om warm te worden na restart.
+          # We pollen tot 6 keer met 5s tussenpauze; de eerste 200 telt.
+          attempt=0
+          until [ "$attempt" -ge 6 ]; do
+            attempt=$((attempt + 1))
+            echo "Smoke attempt $attempt: GET $URL/api/health"
+            response=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+                "$URL/api/health" || true)
+            if [ "$response" = "200" ]; then
+              echo "Health OK (HTTP 200):"
+              cat /tmp/health.json
+              # Valideer dat de body status=ok is — een 200 met
+              # status=degraded mag de deploy alsnog laten falen.
+              if grep -q '"status":"ok"' /tmp/health.json; then
+                exit 0
+              fi
+              echo "::error::HTTP 200 maar status != ok"
+              cat /tmp/health.json
+              exit 1
+            fi
+            echo "Got HTTP $response, retrying in 5s…"
+            sleep 5
+          done
+
+          echo "::error::Smoke-test gefaald na 6 pogingen — laatste body:"
+          cat /tmp/health.json || true
+          exit 1
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

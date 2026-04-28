@@ -1,0 +1,112 @@
+name: Rollback
+
+# Manual workflow — Actions tab → Rollback → "Run workflow".
+# Twee modi:
+#   - Geen `stamp` ingevuld → deploy.sh --rollback (zwap naar vorige release)
+#   - `stamp` ingevuld      → deploy.sh --rollback <stamp> (specifieke release)
+#   - `ref` ingevuld        → deploy.sh <ref> (forwards-deploy, alias voor manual deploy)
+#
+# We splitsen dit niet in 2 workflows zodat de operator één plek heeft
+# om "neem de DRAAIENDE versie offline en pak iets ouders" te doen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stamp:
+        description: "Release-stamp to roll back to (leeg = vorige release)"
+        required: false
+        type: string
+      ref:
+        description: "OF: een git-ref (commit/tag/branch) om vooruit te deployen"
+        required: false
+        type: string
+      reason:
+        description: "Reden (verplicht — komt in audit-log)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Audit-log
+        run: |
+          echo "::notice::Rollback gestart door ${{ github.actor }}"
+          echo "::notice::Reden: ${{ github.event.inputs.reason }}"
+          echo "::notice::Target: stamp='${{ github.event.inputs.stamp }}' ref='${{ github.event.inputs.ref }}'"
+
+      - name: Validate inputs
+        env:
+          STAMP: ${{ github.event.inputs.stamp }}
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "$STAMP" ] && [ -n "$REF" ]; then
+            echo "::error::Geef óf 'stamp' óf 'ref', niet allebei."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          echo "${{ secrets.HETZNER_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 0644 ~/.ssh/known_hosts
+
+      - name: Run rollback / forward-deploy
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          USER: ${{ secrets.HETZNER_USER }}
+          STAMP: ${{ github.event.inputs.stamp }}
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "$REF" ]; then
+            CMD="cd /var/www/beleggeriq && ./deploy.sh '$REF'"
+          elif [ -n "$STAMP" ]; then
+            CMD="cd /var/www/beleggeriq && ./deploy.sh --rollback '$STAMP'"
+          else
+            CMD="cd /var/www/beleggeriq && ./deploy.sh --rollback"
+          fi
+          ssh -p "$PORT" -o BatchMode=yes "$USER@$HOST" "$CMD"
+
+      - name: Smoke-test /api/health
+        env:
+          URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${URL:-}" ]; then
+            echo "::error::PRODUCTION_URL is niet gezet."
+            exit 1
+          fi
+          attempt=0
+          until [ "$attempt" -ge 6 ]; do
+            attempt=$((attempt + 1))
+            response=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+                "$URL/api/health" || true)
+            if [ "$response" = "200" ] && grep -q '"status":"ok"' /tmp/health.json; then
+              echo "Health OK na rollback:"
+              cat /tmp/health.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Rollback-smoke-test gefaald — server is mogelijk down. Onderzoek handmatig:"
+          cat /tmp/health.json || true
+          exit 1
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

@@ -1,0 +1,45 @@
+# BeleggerIQ — Postgres backup service.
+#
+# Type=oneshot — wordt door de timer gestart, eenmalig per run.
+# Logging gaat naar journald (structured JSON via log_event in backup.sh).
+#
+# Installatie:
+#   sudo cp deploy/systemd/beleggeriq-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now beleggeriq-backup.timer
+#
+# Eenmalig handmatig draaien:
+#   sudo systemctl start beleggeriq-backup.service
+#   journalctl -u beleggeriq-backup.service -f
+
+[Unit]
+Description=BeleggerIQ encrypted Postgres backup
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=beleggeriq
+Group=beleggeriq
+WorkingDirectory=/var/www/beleggeriq
+EnvironmentFile=/var/www/beleggeriq/shared/.env.backup
+ExecStart=/var/www/beleggeriq/current/deploy/backup.sh
+
+# Hardening — backup-script schrijft alleen naar /tmp en /var/www/beleggeriq/shared
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/beleggeriq/shared /tmp
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logs naar journald — log_event schrijft structured JSON naar stderr
+StandardOutput=journal
+StandardError=journal
+
+# Een falende backup mag niet zomaar in stilte verdwijnen — we vertrouwen
+# op een externe alert (zie docs/BACKUPS.md "Stale-backup alert"). Dit
+# zorgt dat een fout in pg_dump als FAILURE in `systemctl status` zichtbaar is.
+TimeoutStartSec=30min

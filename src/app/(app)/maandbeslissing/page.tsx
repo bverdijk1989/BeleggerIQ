@@ -8,6 +8,8 @@ import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
 import { fetchRegimeInputs } from "@/lib/data/regime";
 import { portfolioRepository } from "@/lib/data";
+import { buildOrderList } from "@/lib/orders/build-orders";
+import { resolveActiveSelection } from "@/lib/portfolios";
 
 import {
   biasBudgetMultiplier,
@@ -16,6 +18,7 @@ import {
   type MaandbeslissingConfig,
 } from "./build-plan-input";
 import { InputsForm } from "./components/inputs-form";
+import { OrderExport } from "./components/order-export";
 import { PlanHero } from "./components/plan-hero";
 import { RecommendationsGrid } from "./components/recommendations-grid";
 import { SimulationCompare } from "./components/simulation-compare";
@@ -51,16 +54,33 @@ export default async function MaandbeslissingPage({
   const resolvedParams = await searchParams;
   const config = parseMaandbeslissingParams(resolvedParams);
 
+  const selection = await resolveActiveSelection({
+    email: auth.user.email,
+    searchParams: resolvedParams,
+  });
+
+  // Maandbeslissing werkt per-portfolio (1 budget, 1 plan). Voor de
+  // "alle"-keuze sturen we de gebruiker terug naar dashboard-aggregate
+  // — engines hebben hier geen aggregate-modus en de UX zou ambigu zijn.
+  if (selection.kind === "empty" || selection.kind === "all") {
+    if (selection.kind === "all") {
+      return <SelectSpecificPortfolioState />;
+    }
+    return <NoPortfolioState />;
+  }
+
   const context = await portfolioRepository
     .findUserContextByEmail(auth.user.email)
     .catch(() => null);
 
-  if (!context || !context.portfolio) {
+  if (!context) {
     return <NoPortfolioState />;
   }
 
+  const portfolio = selection.portfolio;
+
   const [view, regimeFetch] = await Promise.all([
-    buildPortfolioView(context.portfolio, {
+    buildPortfolioView(portfolio, {
       includeFundamentals: true,
       includeFactorScores: true,
     }),
@@ -85,7 +105,7 @@ export default async function MaandbeslissingPage({
   );
 
   const plan = generateAllocationPlan({
-    portfolioId: context.portfolio.id,
+    portfolioId: portfolio.id,
     baseCurrency: view.summary.baseCurrency,
     valuations: view.valuations,
     totalValue: view.summary.totalValue,
@@ -98,6 +118,28 @@ export default async function MaandbeslissingPage({
   });
 
   const subtitle = buildSubtitle(config, profileContribution);
+
+  // Build order-list voor de manual-broker export. Pure functie:
+  // recommendations + ISIN-lookup uit holdings + quotes uit valuations.
+  const isinByTicker = new Map<string, string | null>();
+  for (const h of portfolio.holdings) isinByTicker.set(h.ticker, h.isin ?? null);
+  const quoteByTicker = new Map<string, { price: number; currency: string }>();
+  for (const v of view.valuations) {
+    if (v.unitPrice !== null && v.unitPrice !== undefined) {
+      quoteByTicker.set(v.holding.ticker, {
+        price: v.unitPrice,
+        currency: v.holding.currency ?? view.summary.baseCurrency,
+      });
+    }
+  }
+  const orderRows = buildOrderList({
+    recommendations: plan.recommendations,
+    isinByTicker,
+    quoteByTicker,
+  });
+  const exportFileName = `beleggeriq-orders-${new Date()
+    .toISOString()
+    .slice(0, 10)}.csv`;
 
   return (
     <>
@@ -141,6 +183,13 @@ export default async function MaandbeslissingPage({
           />
         </Section>
       )}
+
+      <Section
+        title="Manual broker export"
+        description="Download dit plan als CSV of plak 'm direct in Excel/Sheets. Geen automatische uitvoering — je voert de orders zelf in bij je broker."
+      >
+        <OrderExport rows={orderRows} fileName={exportFileName} />
+      </Section>
     </>
   );
 }
@@ -171,6 +220,23 @@ function NoPortfolioState() {
         icon={CalendarClock}
         title="Geen portefeuille"
         description="Zodra je een portefeuille hebt aangemaakt, genereert de engine je maandbeslissing automatisch."
+      />
+    </>
+  );
+}
+
+function SelectSpecificPortfolioState() {
+  return (
+    <>
+      <PageHeader
+        eyebrow="Beslissingen"
+        title="Maandbeslissing"
+        description="Kies een specifieke portefeuille."
+      />
+      <EmptyState
+        icon={CalendarClock}
+        title="Selecteer een portefeuille"
+        description="De maandbeslissing werkt per portefeuille — gebruik de switcher rechtsboven om er één te kiezen."
       />
     </>
   );

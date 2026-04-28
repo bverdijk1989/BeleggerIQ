@@ -122,7 +122,7 @@ export function scoreEtfFactors(
 
   return {
     ticker: input.ticker,
-    asOf: input.asOf ?? new Date().toISOString(),
+    asOf: input.asOf ?? (input.now ?? new Date()).toISOString(),
     subScores,
     composite,
     confidence,

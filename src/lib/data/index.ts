@@ -17,6 +17,16 @@ export {
   type FactorSnapshotRow,
 } from "./snapshot-repository";
 export { decisionHistoryRepository } from "./decision-history-repository";
+export {
+  transactionRepository,
+  type TransactionRow,
+  type BulkImportOutcome,
+  type ListFilter as TransactionListFilter,
+} from "./transaction-repository";
+export {
+  taxValuationRepository,
+  type TaxValuationRow,
+} from "./tax-valuation-repository";
 
 // Market data
 export { marketDataCache, buildCacheKey, TtlCache } from "./cache";

@@ -19,6 +19,10 @@ User=beleggeriq
 Group=beleggeriq
 WorkingDirectory=/var/www/beleggeriq/current
 EnvironmentFile=/var/www/beleggeriq/shared/.env.production
+# Build-info (BIQ_GIT_SHA / BIQ_BUILD_TIME) — geschreven door deploy.sh.
+# Optioneel ('-' prefix): de service start ook als 't bestand er niet is
+# (eerste deploy, of bij rollback naar een release van vóór deze conventie).
+EnvironmentFile=-/var/www/beleggeriq/shared/.env.build-info
 ExecStart=/usr/bin/node /var/www/beleggeriq/current/node_modules/.bin/next start -p 3003
 Restart=always
 RestartSec=5

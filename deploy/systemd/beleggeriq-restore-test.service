@@ -1,0 +1,38 @@
+# BeleggerIQ — wekelijkse restore-test.
+#
+# Doel: voorkom een "Schrödinger backup" — een dump die wel in S3 staat
+# maar niet te restoren is. Deze service draait zondag 04:30
+# `restore-test.sh --list` (snel, ~5s) tegen de meest recente daily/.
+#
+# Voor een echte herstel-validatie (full restore in tijdelijke DB):
+#   sudo -u beleggeriq /var/www/beleggeriq/current/deploy/restore-test.sh --full
+#
+# Voer minstens elke maand handmatig de --full variant uit en log de
+# uitkomst in `docs/BACKUPS.md` → "Restore-validatie-log".
+
+[Unit]
+Description=BeleggerIQ backup restore-test (list mode)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=beleggeriq
+Group=beleggeriq
+WorkingDirectory=/var/www/beleggeriq
+EnvironmentFile=/var/www/beleggeriq/shared/.env.backup
+ExecStart=/var/www/beleggeriq/current/deploy/restore-test.sh --list
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/beleggeriq/shared /tmp
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+StandardOutput=journal
+StandardError=journal
+
+TimeoutStartSec=10min

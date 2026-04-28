@@ -1,7 +1,9 @@
 import { Bell, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
 import { MobileNav } from "./mobile-nav";
+import { PortfolioSwitcher } from "./portfolio-switcher";
 
 export function TopBar() {
   return (
@@ -14,6 +16,9 @@ export function TopBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Server-component: laadt eigen portefeuilles van de actieve user.
+            Toont niets bij single-portfolio of niet-ingelogd. */}
+        <PortfolioSwitcher />
         <Button
           variant="ghost"
           size="icon"

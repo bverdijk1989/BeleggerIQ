@@ -1,0 +1,65 @@
+name: CI
+
+# Draait bij iedere push en bij elke PR. Faalt CI → merge geblokkeerd
+# (zet branch-protection op `main` met required-check "ci / build").
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Voorkomt parallelle runs voor dezelfde branch — als je 3x snel pusht
+# annuleren we de oude runs en draaien alleen de laatste. Spaart minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Tests die DB-mocks gebruiken hebben geen Postgres-service nodig.
+    # `npx prisma generate` heeft alleen schema.prisma nodig (geen DB).
+    # Als we ooit integration-tests tegen een echte DB toevoegen, hang
+    # er een services.postgres aan vast en zet DATABASE_URL.
+
+    env:
+      # Prisma zou anders DATABASE_URL eisen voor `generate`. Een dummy
+      # URL is voldoende — de schema-validatie en client-generatie doen
+      # geen netwerk-call.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      # Test-suite checkt dit secret op lengte. Vaste lengte 48 tekens.
+      BIQ_SESSION_SECRET: ${{ secrets.BIQ_SESSION_SECRET_TEST || 'cccccccccccccccccccccccccccccccccccccccccccccccc' }}
+      # Default provider in CI — geen externe API-calls.
+      MARKET_DATA_PROVIDER: stub
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Type-check (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Next build
+        run: npx next build
+
+      - name: Build ops-scripts
+        run: npm run build:scripts
