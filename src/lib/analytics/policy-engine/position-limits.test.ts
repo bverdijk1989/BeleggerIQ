@@ -39,12 +39,12 @@ describe("resolvePositionLimitByAssetType — defaults per type", () => {
     expect(r.basis).toBe("default");
   });
 
-  it("BROAD_MARKET_ETF → 40% (hoger dan single stock)", () => {
+  it("BROAD_MARKET_ETF → 60% (Bogle/Buffett-laag, hoger dan single stock)", () => {
     const r = resolvePositionLimitByAssetType({
       classification: cls({ instrumentType: "BROAD_MARKET_ETF" }),
       risk: risk("LOW"),
     });
-    expect(r.allowedMaxWeight).toBe(0.40);
+    expect(r.allowedMaxWeight).toBe(0.60);
   });
 
   it("SECTOR_ETF → 15% (lager dan broad-market, hoger dan theme)", () => {
@@ -123,7 +123,7 @@ describe("resolvePositionLimitByAssetType — risk-adjustment", () => {
       classification: cls({ instrumentType: "BROAD_MARKET_ETF" }),
       risk: risk("LOW"),
     });
-    expect(r.allowedMaxWeight).toBe(0.40);
+    expect(r.allowedMaxWeight).toBe(0.60);
   });
 });
 
@@ -180,7 +180,7 @@ describe("resolvePositionLimitByAssetType — user overrides", () => {
       risk: risk("LOW"),
       context: { userMaxSinglePositionWeight: 0.05 },
     });
-    expect(r.allowedMaxWeight).toBe(0.40);
+    expect(r.allowedMaxWeight).toBe(0.60);
   });
 });
 

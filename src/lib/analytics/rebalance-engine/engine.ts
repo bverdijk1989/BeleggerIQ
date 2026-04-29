@@ -44,6 +44,16 @@ export interface BuildRebalancePlanInput {
   policy?: PolicySettings | null;
   /** Directe override; heeft voorrang op policy. */
   thresholds?: RebalanceThresholds;
+  /**
+   * Per-ticker instrument-cap (uit policy-engine). BROAD_MARKET_ETF
+   * krijgt 60% i.p.v. de platte 10%, zodat een Vanguard S&P 500 op
+   * 30% géén TRIM-advies meer triggert. Optional voor backwards-compat;
+   * wanneer afwezig valt de engine terug op `thresholds.maxPositionWeight`.
+   */
+  instrumentLimitsByTicker?: Map<
+    string,
+    { allowedMaxWeight: number; runMultiplier: number }
+  > | null;
 }
 
 export function buildRebalancePlan(
@@ -55,7 +65,12 @@ export function buildRebalancePlan(
     thresholdsFromPolicy(input.policy ?? null, DEFAULT_REBALANCE_THRESHOLDS);
 
   const recommendations = input.valuations.map((valuation) =>
-    recommendFor(valuation, input.totalValue, thresholds),
+    recommendFor(
+      valuation,
+      input.totalValue,
+      thresholds,
+      input.instrumentLimitsByTicker?.get(valuation.holding.ticker) ?? null,
+    ),
   );
 
   const summary: Record<RebalanceAction, number> = {
@@ -99,6 +114,9 @@ function recommendFor(
   valuation: HoldingValuation,
   totalValue: number,
   thresholds: RebalanceThresholds,
+  instrumentLimit:
+    | { allowedMaxWeight: number; runMultiplier: number }
+    | null,
 ): RebalanceRecommendation {
   const currentWeight =
     totalValue > 0 ? valuation.marketValueBase / totalValue : 0;
@@ -121,10 +139,22 @@ function recommendFor(
     thresholds,
   });
 
+  // Effectieve thresholds: type-bewuste cap + run-multiplier overrulen
+  // de platte defaults wanneer een instrumentLimit beschikbaar is. Zo
+  // krijgt een BROAD_MARKET_ETF cap=60%, runMultiplier=1.10 i.p.v.
+  // 10% / 2.00 — geen vals TRIM-signaal voor een core-ETF.
+  const effectiveThresholds: RebalanceThresholds = instrumentLimit
+    ? {
+        ...thresholds,
+        maxPositionWeight: instrumentLimit.allowedMaxWeight,
+        healthyRunMultiplier: instrumentLimit.runMultiplier,
+      }
+    : thresholds;
+
   const { action, targetWeight, actionReasons } = deriveAction({
     currentWeight,
     classification,
-    thresholds,
+    thresholds: effectiveThresholds,
   });
 
   const reasons = [...actionReasons, ...classification.reasons];

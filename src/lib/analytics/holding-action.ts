@@ -32,7 +32,27 @@ export interface DeriveHoldingActionInput {
   currentWeight?: number | null;
   /** Beleidsmatig target, 0..1. Als afwezig → geen TRIM op basis van gewicht. */
   targetWeight?: number | null;
+  /**
+   * Instrument-type uit de classifier. **Bogle/Buffett-laag**: een
+   * BROAD_MARKET_ETF of BOND_ETF wordt nooit als TRIM gemarkeerd op
+   * basis van een matige composite — een index-tracker hoort gemiddelde
+   * scores te hebben (dat IS de markt). TRIM-actie blijft gereserveerd
+   * voor single-stocks en thematische ETFs.
+   */
+  instrumentType?: string | null;
 }
+
+/**
+ * Set van instrument-types die nooit een TRIM-actie krijgen op basis van
+ * een matige factor-score. Toevoegen wanneer er nieuwe core-asset-types
+ * komen (bv. WORLD_BOND_ETF). Sector-/theme-ETFs zitten er BEWUST niet
+ * in — die zijn tactische bets en mogen wel afgebouwd worden bij zwak
+ * profiel.
+ */
+const CORE_TYPES_NO_FACTOR_TRIM = new Set<string>([
+  "BROAD_MARKET_ETF",
+  "BOND_ETF",
+]);
 
 export const ACTION_LABELS: Record<HoldingAction, string> = {
   BUY_CANDIDATE: "BUY CANDIDATE",
@@ -108,6 +128,20 @@ export function deriveHoldingAction(
   }
 
   if (composite < ACTION_THRESHOLDS.trimMax && isOverweight(input)) {
+    // Bogle/Buffett-laag: een BROAD_MARKET_ETF of BOND_ETF krijgt geen
+    // TRIM op factor-score — een index hoort per definitie een
+    // gemiddelde score te hebben. TRIM blijft gereserveerd voor
+    // single-stocks en thematische ETFs.
+    if (
+      input.instrumentType &&
+      CORE_TYPES_NO_FACTOR_TRIM.has(input.instrumentType)
+    ) {
+      return {
+        action: "HOLD",
+        rationale: `Core-${input.instrumentType.toLowerCase().replace(/_/g, " ")} — gemiddelde score is per ontwerp; geen factor-driven TRIM.`,
+        confidence,
+      };
+    }
     return {
       action: "TRIM",
       rationale: `Matige score (${Math.round(composite)}/100) en positie boven target-gewicht.`,

@@ -23,6 +23,13 @@ export type ViolationSeverity = "ok" | "minor" | "major" | "critical";
 export interface PositionLimit {
   /** Cap voor de positie in deze holding, fractie 0..1. */
   allowedMaxWeight: number;
+  /**
+   * Run-multiplier voor de rebalance-engine. TRIM wordt pas getriggerd
+   * wanneer `currentWeight > allowedMaxWeight × runMultiplier`. Voor
+   * BROAD_MARKET_ETF is die ~1.10 (geen winner-effect); voor SINGLE_STOCK
+   * 2.00 (Buffett "let winners run").
+   */
+  runMultiplier: number;
   /** Welke bron heeft deze cap bepaald (default / user policy / override). */
   basis: "default" | "user-policy" | "user-override" | "risk-adjusted";
   /** Uitlegbare reden ("Single stock — conservatieve cap van 10%"). */
@@ -74,7 +81,12 @@ export interface PolicyReport {
  */
 export const DEFAULT_LIMITS_BY_TYPE: Record<InstrumentType, number | null> = {
   SINGLE_STOCK: 0.10,
-  BROAD_MARKET_ETF: 0.40,
+  // **Bogle/Buffett-laag.** Een broad-market index-ETF is per definitie
+  // geen "concentratie": je houdt de hele markt vast. Buffett raadt
+  // erfgenamen 90% in S&P 500 aan; Bogle suggereert ≥ 80% voor de
+  // gemiddelde belegger. 60% is een conservatieve mediaan die ruimte
+  // laat voor 1-2 satelliet-ETFs of een bond-allocatie.
+  BROAD_MARKET_ETF: 0.60,
   FACTOR_ETF: 0.30,
   SECTOR_ETF: 0.15,
   THEME_ETF: 0.10,
@@ -86,6 +98,37 @@ export const DEFAULT_LIMITS_BY_TYPE: Record<InstrumentType, number | null> = {
   LEVERAGED_OR_INVERSE: 0.03,
   UNKNOWN_ETF: 0.10,
   UNKNOWN: 0.05,
+};
+
+/**
+ * Run-multiplier per instrument-type.
+ *
+ * Een single-stock kan een "winner" zijn die mag doorgroeien (Buffett's
+ * KO-positie groeide 5% → 25% over 30 jaar) — daarvoor 2.00×. Een
+ * broad-market ETF die meegroeit met de markt is **geen winner-effect**
+ * maar gewoon je beleidsmatige core; 1.10× houdt 'em strak rond de
+ * cap. Speculatieve types krijgen ≤ 1.25× zodat ze niet ongemerkt
+ * doorgroeien.
+ *
+ * Effect op rebalance-engine: een TRIM-actie wordt pas getriggerd
+ * wanneer `currentWeight > cap × runMultiplier`. Voor BROAD_MARKET_ETF
+ * met cap 60% × 1.10 = 66% — een Vanguard S&P 500 op 60% blijft dus
+ * onaangeraakt (geen vals SELL-signaal).
+ */
+export const RUN_MULTIPLIER_BY_TYPE: Record<InstrumentType, number> = {
+  SINGLE_STOCK: 2.00, // Buffett "let winners run"
+  BROAD_MARKET_ETF: 1.10,
+  BOND_ETF: 1.10,
+  INCOME_ETF: 1.25,
+  FACTOR_ETF: 1.25,
+  SECTOR_ETF: 1.50,
+  THEME_ETF: 1.25,
+  COMMODITY_ETF: 1.25,
+  CRYPTO: 1.00, // volatility kills compounding
+  CASH: 1.00,
+  LEVERAGED_OR_INVERSE: 1.00, // compounding-drift; niet laten lopen
+  UNKNOWN_ETF: 1.10,
+  UNKNOWN: 1.00,
 };
 
 /**

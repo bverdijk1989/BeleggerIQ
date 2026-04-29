@@ -4,6 +4,7 @@ import type { InstrumentRiskAssessment } from "./classify-risk";
 import {
   DEFAULT_LIMITS_BY_TYPE,
   RISK_ADJUSTMENT_MULTIPLIER,
+  RUN_MULTIPLIER_BY_TYPE,
   type PolicyContext,
   type PositionLimit,
 } from "./types";
@@ -38,11 +39,13 @@ export function resolvePositionLimitByAssetType(
 
   // 1) Start met default cap voor dit instrument-type.
   const defaultCap = DEFAULT_LIMITS_BY_TYPE[instrumentType];
+  const runMultiplier = RUN_MULTIPLIER_BY_TYPE[instrumentType] ?? 1.0;
   if (defaultCap === null) {
     // Cash: geen cap. Returnen als +∞ zodat downstream vergelijkingen
     // natuurlijk uitkomen (currentWeight < Infinity is altijd true).
     return {
       allowedMaxWeight: Number.POSITIVE_INFINITY,
+      runMultiplier,
       basis: "default",
       reason: `${humanize(instrumentType)} — geen positie-cap.`,
     };
@@ -60,6 +63,7 @@ export function resolvePositionLimitByAssetType(
     // Expliciete null = cap uitzetten. Return infinity; user neemt bewust risico.
     return {
       allowedMaxWeight: Number.POSITIVE_INFINITY,
+      runMultiplier,
       basis: "user-override",
       reason: `${humanize(instrumentType)} — policy-override heft de cap op.`,
     };
@@ -111,6 +115,7 @@ export function resolvePositionLimitByAssetType(
 
   return {
     allowedMaxWeight: roundTo4(cap),
+    runMultiplier,
     basis,
     reason: reasonParts.join(" → "),
   };

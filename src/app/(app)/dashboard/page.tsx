@@ -37,6 +37,7 @@ import {
   summarizeBusinessQuality,
   summarizeDecisionHistory,
 } from "@/lib/analytics";
+import { capForHolding } from "@/lib/analytics/policy-engine/holding-cap";
 import { explainDashboardSummary } from "@/lib/ai";
 import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
@@ -197,6 +198,42 @@ export default async function DashboardPage({
     debtWealth: context.profile?.debtWealthEur ?? 0,
   });
 
+  // Instrument-classifications eerst — deze drijven de type-bewuste
+  // positie-caps in de action-engine. BROAD_MARKET_ETF krijgt 60% i.p.v.
+  // de oude flat 10%, zodat een Vanguard S&P 500 op 30% géén vals SELL
+  // signaal triggert.
+  const enrichmentsForCap = await enrichInstruments(
+    portfolio.holdings.map((h) => ({
+      ticker: h.ticker,
+      isin: h.isin ?? null,
+      name: h.name,
+    })),
+  ).catch(() => new Map());
+  const classificationsForCap = classifyInstruments({
+    items: portfolio.holdings.map((h) => ({
+      holding: h,
+      enrichment: enrichmentsForCap.get(h.ticker) ?? null,
+    })),
+  });
+  const instrumentLimitsByTicker = new Map<
+    string,
+    { allowedMaxWeight: number; runMultiplier: number }
+  >();
+  for (const [ticker, classification] of classificationsForCap) {
+    const limit = capForHolding({
+      classification,
+      policy: {
+        userMaxSinglePositionWeight: context.profile?.policy?.maxPositionWeight,
+      },
+    });
+    if (limit && Number.isFinite(limit.allowedMaxWeight)) {
+      instrumentLimitsByTicker.set(ticker, {
+        allowedMaxWeight: limit.allowedMaxWeight,
+        runMultiplier: limit.runMultiplier,
+      });
+    }
+  }
+
   // Action & Rebalance Engine — pure rule-based decisions per positie.
   const quantityPlanByTicker = new Map(
     view.rebalance.recommendations.map((r) => [r.ticker, r.quantityPlan]),
@@ -216,6 +253,7 @@ export default async function DashboardPage({
       factorScore: v.holding.factorScore ?? null,
       positionRisk: positionRiskByTicker.get(v.holding.ticker) ?? null,
       quantityPlan: quantityPlanByTicker.get(v.holding.ticker) ?? null,
+      instrumentLimit: instrumentLimitsByTicker.get(v.holding.ticker) ?? null,
     })),
     totalValue: view.summary.totalValue,
     cashBalance: view.summary.cashBalance,

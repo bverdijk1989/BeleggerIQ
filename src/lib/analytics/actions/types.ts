@@ -93,6 +93,12 @@ export interface ActionPositionInput {
   positionRisk?: PositionRiskAnalysis | null;
   /** Quantity-plan (uit rebalance-engine) wanneer aanwezig. */
   quantityPlan?: RebalanceQuantityPlan | null;
+  /**
+   * Type-bewuste positie-cap uit de policy-engine. BROAD_MARKET_ETF
+   * krijgt 60% (Bogle/Buffett-laag), SINGLE_STOCK 10%. Wanneer afwezig
+   * valt de classifier terug op `policy.maxPositionWeight`.
+   */
+  instrumentLimit?: { allowedMaxWeight: number; runMultiplier: number } | null;
 }
 
 export interface DecisionEngineInput {

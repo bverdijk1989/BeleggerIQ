@@ -82,6 +82,9 @@ export function runDecisionEngine(input: DecisionEngineInput): ActionPlan {
       cashAvailable,
       marketValueBase: entry.marketValueBase,
       regime: input.regime ?? null,
+      // Type-bewuste cap (BROAD_MARKET_ETF 60% / SINGLE_STOCK 10%) — voorkomt
+      // dat ETF-fundering wordt afgebouwd alsof 'em een single-name is.
+      instrumentLimit: entry.instrumentLimit ?? null,
     });
 
     const quantity = resolveActionQuantity({

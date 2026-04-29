@@ -85,6 +85,12 @@ export interface ClassifyActionInput {
   marketValueBase: number;
   /** Marktregime — DEFENSIVE remt BUY, NEUTRAL/RISK_ON kan BUY versterken. */
   regime?: MarketRegimeScore | null;
+  /**
+   * Type-bewuste positie-cap uit de policy-engine. Wanneer aanwezig krijgt
+   * deze voorrang op `policy.maxPositionWeight` — zo krijgt een
+   * BROAD_MARKET_ETF 60% en een SINGLE_STOCK 10% bij dezelfde policy.
+   */
+  instrumentLimit?: { allowedMaxWeight: number; runMultiplier: number } | null;
 }
 
 export interface ClassifyActionResult {
@@ -103,7 +109,7 @@ export interface ClassifyActionResult {
 export function classifyAction(
   input: ClassifyActionInput,
 ): ClassifyActionResult {
-  const cap = resolveCap(input.policy);
+  const cap = resolveCap(input.policy, input.instrumentLimit);
   const composite = input.composite;
   const conf = input.factorConfidence ?? null;
 
@@ -235,8 +241,13 @@ function decideTrim(
   const sources: ActionSource[] = [];
   const rationaleParts: string[] = [];
 
-  // Boven cap (anti-concentratie)?
-  const aboveCap = input.currentWeight > cap;
+  // Boven cap (anti-concentratie)? Run-multiplier respecteren: voor
+  // BROAD_MARKET_ETF (cap 60%, runMultiplier 1.10) trim-trigger pas
+  // bij 66%; voor SINGLE_STOCK (cap 10%, runMultiplier 2.00) pas bij
+  // 20% (Buffett-laag "let winners run").
+  const trimRunMultiplier = input.instrumentLimit?.runMultiplier ?? 1.0;
+  const trimTrigger = cap * trimRunMultiplier;
+  const aboveCap = input.currentWeight > trimTrigger;
   // Boven target × overshoot-factor + zwakke factor?
   const aboveTarget =
     target !== null &&
@@ -313,7 +324,7 @@ function decideBuy(
 ): ClassifyActionResult | null {
   const composite = input.composite;
   const conf = input.factorConfidence ?? 0;
-  const cap = resolveCap(input.policy);
+  const cap = resolveCap(input.policy, input.instrumentLimit);
 
   if (composite === null) return null;
   if (composite < DECISION_THRESHOLDS.buyComposite) return null;
@@ -363,7 +374,24 @@ function decideBuy(
 //  Helpers
 // ============================================================
 
-export function resolveCap(policy?: PolicySettings | null): number {
+/**
+ * Cap-resolver. Wanneer `instrumentLimit` aanwezig is gebruiken we de
+ * type-bewuste cap uit de policy-engine (BROAD_MARKET_ETF 60%, SINGLE_STOCK
+ * 10%, …). Anders fallback op `policy.maxPositionWeight` (legacy) of de
+ * conservatieve default 10%.
+ *
+ * Wordt zo nieuwe canonical entry-point: alle action-engine paden
+ * (decideSell, decideTrim, decideBuy) gaan via deze functie.
+ */
+export function resolveCap(
+  policy?: PolicySettings | null,
+  instrumentLimit?: { allowedMaxWeight: number } | null,
+): number {
+  // Type-bewuste cap heeft voorrang — anders blijft een 30% Vanguard
+  // S&P 500 een SELL-trigger krijgen tegen de 10%-default.
+  if (instrumentLimit && Number.isFinite(instrumentLimit.allowedMaxWeight)) {
+    return instrumentLimit.allowedMaxWeight;
+  }
   const fromPolicy = policy?.maxPositionWeight;
   if (typeof fromPolicy === "number" && fromPolicy > 0 && fromPolicy <= 1) {
     return fromPolicy;
