@@ -2,6 +2,7 @@ import type { Route } from "next";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Bell,
   BookOpen,
   Bot,
   Briefcase,
@@ -93,6 +94,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     href: "/score" as Route,
     icon: BarChart3,
     description: "Investment Confidence — 10-signaal fusion-score per positie",
+    group: "analyse",
+  },
+  {
+    label: "Alerts",
+    href: "/alerts" as Route,
+    icon: Bell,
+    description: "Notification center — health-drops, concentratie, regime-shifts, briefings",
     group: "analyse",
   },
   {

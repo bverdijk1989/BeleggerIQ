@@ -44,6 +44,7 @@ model User {
   behavioralWarningStates BehavioralWarningState[]
   financialGoals          FinancialGoal[]
   subscriptions           Subscription[]
+  alerts                  Alert[]
 
   @@index([email])
 }
@@ -876,6 +877,54 @@ model Subscription {
 }
 
 // ============================================================
+//  ALERTS — in-app notification center (los van outbound delivery)
+// ============================================================
+
+/// In-app alert: gegenereerd door de alerts-engine, getoond in het
+/// notification-center (`/alerts`) en de bell-icoon-popover.
+///
+/// **Los van `NotificationDelivery`**: dat model is voor outbound
+/// e-mail/digest-delivery; deze tabel is voor in-app read/unread/dismiss-
+/// state. Een event kan zowel een Alert (in-app) als een
+/// NotificationDelivery (e-mail) krijgen — `dedupeKey` is daarbij gelijk.
+///
+/// Conventies:
+///  - **`dedupeKey`** unique per (userId, dedupeKey). Dezelfde gebeurtenis
+///    twee keer triggeren produceert ÉÉN rij — idempotency-grens.
+///  - **`status`** start UNREAD; gebruiker mark't 'em READ of DISMISSED.
+///  - **`severity`** stuurt UI-toon (info/warning/critical) + sortering.
+///  - **`context`** is een vrije Json bag voor template-rendering en
+///    deeplinks (ticker, scoreBefore/After, regimeBefore/After, …).
+model Alert {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        AlertType
+  severity    AlertSeverity  @default(INFO)
+  status      AlertStatus    @default(UNREAD)
+  /// Stabiele dedup-id, bv. "HEALTH_DROP:p-1:2026-05-10".
+  dedupeKey   String
+  /// Eénregelige titel voor lijst-weergave.
+  title       String
+  /// 1–4 zinnen NL plain text — voor popover én detail-pagina.
+  body        String
+  /// Vrije meta-bag (ticker, scoreBefore, regimeAfter, etc.).
+  context     Json?
+  /// Optionele app-route waar de gebruiker naartoe kan klikken.
+  link        String?
+  /// Wanneer de onderliggende gebeurtenis plaatsvond (≤ createdAt).
+  occurredAt  DateTime
+  readAt      DateTime?
+  dismissedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, status, occurredAt])
+  @@index([userId, type, occurredAt])
+}
+
+// ============================================================
 //  ENUMS
 // ============================================================
 
@@ -924,6 +973,31 @@ enum SubscriptionStatus {
   PAST_DUE
   CANCELED
   EXPIRED
+}
+
+enum AlertType {
+  HEALTH_DROP
+  CONCENTRATION_RISING
+  PRICE_MOVE
+  MACRO_REGIME_CHANGE
+  BEHAVIORAL_WARNING
+  EARNINGS_EVENT
+  DIVIDEND_EVENT
+  WATCHLIST_OPPORTUNITY
+  VALUATION_SIGNAL
+  AI_BRIEFING_READY
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  UNREAD
+  READ
+  DISMISSED
 }
 
 enum InvestmentObjective {

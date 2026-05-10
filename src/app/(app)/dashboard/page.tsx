@@ -46,6 +46,11 @@ import {
   buildBriefingContext,
   loadDailyBriefing,
 } from "@/lib/ai/briefing";
+import {
+  evaluateAlerts,
+  parseAlertPreferences,
+} from "@/lib/alerts";
+import { alertRepository } from "@/lib/data";
 import { loadBehavioralCoach } from "@/lib/analytics/behavioral";
 import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
@@ -480,6 +485,84 @@ export default async function DashboardPage({
     riskActions,
   });
   const briefing = await loadDailyBriefing({ context: briefingContext });
+
+  // Alerts engine (M30) — draai bij elke dashboard-load. Idempotent op
+  // dedupeKey, dus tweemaal openen op één dag = één rij. Faal-safe:
+  // als de DB-write valt, mag de dashboard-render NIET breken.
+  if (context.userId) {
+    try {
+      const asOfIso = new Date().toISOString();
+      const previousHealthScore =
+        snapshots.length >= 2 && snapshots[1]?.healthScore !== null
+          ? Number(snapshots[1]!.healthScore)
+          : null;
+      const alertPrefs = parseAlertPreferences(
+        (context.profile?.preferences as Record<string, unknown> | undefined)
+          ?.alerts,
+      );
+      const previousBehavioralIds = new Set<string>(
+        coachResult.signals
+          .filter((s) => s.state !== null)
+          .map((s) => s.id),
+      );
+      const evalResult = evaluateAlerts({
+        userId: context.userId,
+        preferences: alertPrefs,
+        health: {
+          asOf: asOfIso,
+          current: healthScore.totalScore,
+          previous: previousHealthScore,
+          currentGrade: healthScore.grade,
+        },
+        concentration: {
+          asOf: asOfIso,
+          positions: view.valuations.map((v) => ({
+            ticker: v.holding.ticker,
+            weight:
+              view.summary.totalValue > 0
+                ? v.marketValueBase / view.summary.totalValue
+                : 0,
+            previousWeight: null,
+          })),
+          sectors: (view.risk.exposures.bySector ?? []).map((s) => ({
+            label: s.label,
+            weight: s.weight,
+            previousWeight: null,
+          })),
+        },
+        macroRegime: {
+          asOf: asOfIso,
+          previous: null,
+          current: macroReport.classification.regime,
+        },
+        behavioral: {
+          asOf: asOfIso,
+          signals: coachResult.signals
+            .filter((s) => s.effectiveStatus === "ACTIVE")
+            .map((s) => ({
+              id: s.id,
+              title: s.title,
+              severity: s.severity,
+              isNew: !previousBehavioralIds.has(s.id),
+            })),
+        },
+        briefing: {
+          asOf: asOfIso,
+          briefingDate: briefing.briefingDate,
+          headline: briefing.headline,
+          mode: briefing.mode,
+        },
+      });
+      if (evalResult.delivered.length > 0) {
+        await alertRepository.persistCandidates(
+          context.userId,
+          evalResult.delivered,
+        );
+      }
+    } catch {
+      // Dashboard mag niet breken op alert-engine-fout.
+    }
+  }
 
   // Opportunity prioritizer — top 3 dashboard-kansen op basis van de
   // Opportunity Radar, met portfolio-weight + regime-aware rerank en

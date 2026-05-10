@@ -19,6 +19,7 @@ export {
 export { decisionHistoryRepository } from "./decision-history-repository";
 export { behavioralStateRepository } from "./behavioral-state-repository";
 export { goalRepository } from "./goal-repository";
+export { alertRepository } from "./alert-repository";
 export {
   transactionRepository,
   type TransactionRow,
