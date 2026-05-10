@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { audit } from "@/lib/audit";
 import { matchesSessionUser, resolveUserFromServer } from "@/lib/auth";
 import {
   portfolioRepository,
@@ -138,6 +139,23 @@ export async function commitTransactionsCsv(
   revalidatePath("/transacties");
   revalidatePath("/portfolio");
   revalidatePath("/dashboard");
+
+  // Audit-trail: transactie-import raakt financiële data — bewaren voor
+  // compliance (belastingaangifte, audit-controle, etc.).
+  await audit.record({
+    userEmail: auth.user.email,
+    category: "transactions",
+    action: "import_transactions",
+    resourceType: "Portfolio",
+    resourceId: portfolio.id,
+    summary: `${outcome.inserted} nieuwe transacties geïmporteerd, ${outcome.skipped} duplicaten`,
+    metadata: {
+      inserted: outcome.inserted,
+      skipped: outcome.skipped,
+      errors: outcome.errors,
+      parsedRows: parsed.transactions.length,
+    },
+  });
 
   return {
     ok: outcome.errors === 0,

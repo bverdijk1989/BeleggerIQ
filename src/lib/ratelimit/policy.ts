@@ -51,6 +51,17 @@ const STRICT_FACTORS: RateLimitPolicy = {
   config: { capacity: 5, refillPerSec: 5 / 60 },
 };
 
+/**
+ * /api/ai/* — LLM-aanroepen zijn duur (provider-quota + latency).
+ * Zelfde 5/min-bucket als /api/chat zodat een script niet de quota
+ * van een hele dag binnen 1 minuut leeg trekt.
+ */
+const STRICT_AI: RateLimitPolicy = {
+  name: "strict-ai",
+  matches: (pathname) => pathname.startsWith("/api/ai/"),
+  config: { capacity: 5, refillPerSec: 5 / 60 },
+};
+
 const STRICT_LOGIN: RateLimitPolicy = {
   name: "strict-login",
   matches: (pathname, method) => pathname === "/login" && method === "POST",
@@ -64,6 +75,7 @@ const STRICT_LOGIN: RateLimitPolicy = {
 export const POLICIES: readonly RateLimitPolicy[] = [
   STRICT_CHAT,
   STRICT_FACTORS,
+  STRICT_AI,
   STRICT_LOGIN,
   DEFAULT_API,
 ];

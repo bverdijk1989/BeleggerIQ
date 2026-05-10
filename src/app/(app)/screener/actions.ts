@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { audit } from "@/lib/audit";
 import { resolveUserFromServer } from "@/lib/auth";
 import { prisma } from "@/lib/data/prisma";
 import { log } from "@/lib/log";
@@ -69,6 +70,18 @@ export async function addToWatchlist(
 
     revalidatePath("/portfolio");
 
+    // Audit-trail: watchlist-mutation.
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "watchlist",
+      action: existing ? "watchlist_update" : "watchlist_add",
+      resourceType: "WatchlistItem",
+      resourceId: ticker,
+      summary: existing
+        ? `Watchlist-item ${ticker} bijgewerkt`
+        : `Watchlist-item ${ticker} toegevoegd`,
+    });
+
     return {
       ok: true,
       duplicated: Boolean(existing),
@@ -77,9 +90,16 @@ export async function addToWatchlist(
         : `${ticker} toegevoegd aan je watchlist.`,
     };
   } catch (error) {
-    log.error("screener:addToWatchlist", "prisma upsert failed", { error });
-    const message =
-      error instanceof Error ? error.message : "Onbekende fout.";
-    return { ok: false, message };
+    // Sanitized client-response: rauwe error.message wordt gelogd, niet
+    // doorgegeven naar de browser (prevents leak van DB-schema, paths, etc.).
+    log.error("screener:addToWatchlist", "prisma upsert failed", {
+      rawMessage: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : "non-error",
+      ticker,
+    });
+    return {
+      ok: false,
+      message: "Toevoegen aan watchlist mislukt. Probeer het opnieuw.",
+    };
   }
 }

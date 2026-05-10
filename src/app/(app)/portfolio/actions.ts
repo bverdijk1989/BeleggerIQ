@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
+import { audit } from "@/lib/audit";
 import { matchesSessionUser, resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import { log } from "@/lib/log";
 import {
   parseDegiroCsv,
   toHoldingDrafts,
@@ -98,6 +100,22 @@ export async function importDegiroCsv(
     revalidatePath("/portfolio");
     revalidatePath("/dashboard");
 
+    // Audit-trail: importeer-actie raakt holdings — bewaren voor compliance.
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "transactions",
+      action: "import_degiro",
+      resourceType: "Portfolio",
+      resourceId: portfolio.id,
+      summary: `${created} nieuwe + ${updated} bijgewerkte posities geïmporteerd via DEGIRO-CSV`,
+      metadata: {
+        created,
+        updated,
+        skipped: parseResult.skipped.length,
+        warnings: parseResult.warnings.length,
+      },
+    });
+
     return {
       ok: true,
       message: `${created} nieuwe en ${updated} bijgewerkte posities geïmporteerd.`,
@@ -107,8 +125,16 @@ export async function importDegiroCsv(
       skipped: parseResult.skipped.length,
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Onbekende fout bij het importeren.";
-    return { ok: false, message, parseResult };
+    // Sanitized client-response (geen rauwe error.message naar de browser).
+    log.error("portfolio", "import_degiro_failed", {
+      portfolioId: portfolio.id,
+      rawMessage: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : "non-error",
+    });
+    return {
+      ok: false,
+      message: "Importeren mislukt door een interne fout. Probeer het opnieuw.",
+      parseResult,
+    };
   }
 }
