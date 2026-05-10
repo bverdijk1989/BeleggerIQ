@@ -12,6 +12,7 @@ import type { InvestmentObjective } from "@/types/profile";
 import { scoreMomentum } from "./momentum";
 import { scoreQuality } from "./quality";
 import { scoreRisk } from "./risk";
+import { computeCompositeStdErr } from "./error-band";
 import { clamp } from "./shared";
 import { scoreValue } from "./value";
 
@@ -158,11 +159,25 @@ export function scoreFactors(
       ? clamp(rawConfidence, 0, 1)
       : Math.min(MAX_CONFIDENCE_LOW_COVERAGE, clamp(rawConfidence, 0, 1));
 
+  // Error-band berekening (M17): hoe lager de coverage van de pillars,
+  // hoe groter de stdErr op de composite. Voorkomt schijnzekerheid in
+  // de UI ("65/100" vs "65 ± 12").
+  const compositeStdErr = computeCompositeStdErr({
+    weights,
+    pillars: [
+      { key: "quality", coverage: quality.coverage, reliable: reliablePillars.quality },
+      { key: "value", coverage: value.coverage, reliable: reliablePillars.value },
+      { key: "momentum", coverage: momentum.coverage, reliable: reliablePillars.momentum },
+      { key: "lowVol", coverage: risk.coverage, reliable: reliablePillars.lowVol },
+    ],
+  });
+
   return {
     ticker: input.ticker,
     asOf: input.asOf ?? new Date().toISOString(),
     subScores,
     composite,
+    compositeStdErr,
     confidence,
     model: "beleggeriq.v1",
     weights,

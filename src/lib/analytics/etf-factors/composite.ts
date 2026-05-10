@@ -3,6 +3,7 @@ import {
   MIN_COVERAGE_FOR_COMPOSITE,
   MIN_PILLARS_FOR_COMPOSITE,
 } from "../factors/composite";
+import { computeCompositeStdErr } from "../factors/error-band";
 import { clamp } from "../factors/shared";
 import type {
   EtfFactorBreakdown,
@@ -120,11 +121,24 @@ export function scoreEtfFactors(
       ? clamp(rawConfidence, 0, 1)
       : Math.min(MAX_CONFIDENCE_LOW_COVERAGE, clamp(rawConfidence, 0, 1));
 
+  // Error-band (M17). Mapping: cost→quality, scale→value,
+  // trackRecord→momentum, fit→lowVol (zelfde als de subScores-mapping).
+  const compositeStdErr = computeCompositeStdErr({
+    weights,
+    pillars: [
+      { key: "quality", coverage: cost.coverage, reliable: reliable.quality },
+      { key: "value", coverage: scale.coverage, reliable: reliable.value },
+      { key: "momentum", coverage: trackRecord.coverage, reliable: reliable.momentum },
+      { key: "lowVol", coverage: fit.coverage, reliable: reliable.lowVol },
+    ],
+  });
+
   return {
     ticker: input.ticker,
     asOf: input.asOf ?? (input.now ?? new Date()).toISOString(),
     subScores,
     composite,
+    compositeStdErr,
     confidence,
     model: "beleggeriq.etf.v1",
     weights,

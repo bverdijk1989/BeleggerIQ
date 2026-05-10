@@ -89,6 +89,24 @@ export interface FactorScore {
   asOf: ISODateString;
   subScores: FactorSubScores;
   composite: number;
+  /**
+   * Geschatte standaardfout op `composite` (0..100-schaal).
+   *
+   * **Bron**: simple uncertainty-propagation o.b.v. coverage van de
+   * pillars. Hoe lager de coverage en hoe minder reliable pillars,
+   * hoe groter de stdErr. Een composite van 65 ± 12 betekent: bij
+   * herhaalde meting (zonder data-shift) verwachten we ongeveer
+   * dezelfde score binnen [53, 77] op 1σ-niveau.
+   *
+   * **Doel**: voorkomen dat gebruikers "65/100" als puntwaarde lezen
+   * terwijl de onderliggende statistische zekerheid een wijdere band
+   * rechtvaardigt. Zie `compositeStdErr` in [composite.ts](../lib/analytics/factors/composite.ts)
+   * voor de formule.
+   *
+   * Optioneel — niet alle scores hebben coverage-data om dit te
+   * berekenen (bv. legacy snapshots).
+   */
+  compositeStdErr?: number;
   percentile?: number;
   confidence?: number;
   model?: string;

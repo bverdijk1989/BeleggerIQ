@@ -556,6 +556,51 @@ model TaxValuation {
 }
 
 // ============================================================
+//  FACTOR DRIFT MONITOR (M19 — skeleton)
+// ============================================================
+
+/// Rolling factor-effectiveness snapshot. Per (factor, capturedAt)
+/// noteren we de Information Coefficient (IC) over een rolling window —
+/// een klassiek maatstaf voor "voorspelt deze factor nog returns?".
+///
+/// **Doel**: detecteer wanneer een factor (quality, value, etc.) niet
+/// meer signaal geeft. Een 12m-IC die nadert tot 0 betekent: de factor
+/// is gestopt te werken op je universum, of de markt heeft ze
+/// arbitraged. Trigger: notification `MODEL_DRIFT_DETECTED`.
+///
+/// Conventies:
+///  - **`factor`** = `quality | value | momentum | lowVol`.
+///  - **`window`** = "12m" | "6m" | "3m" — meerdere windows naast elkaar
+///    om robuust te zijn tegen kortdurende noise.
+///  - **`ic`** = Spearman-correlatie tussen factor-rank en
+///    realized-return-rank op het einde van het window. Range [-1, 1].
+///  - **`hitRate`** = fractie posities waar voorspelde rank-volgorde
+///    klopte. 0.5 = random; > 0.55 = signaal.
+///  - **`sampleSize`** = aantal posities in de meting; minder dan 30
+///    levert geen signaal.
+///
+/// Idempotent op (factor, capturedAt, window) — re-runs van de drift-
+/// job overschrijven niet onbedoeld historie.
+model FactorDriftSnapshot {
+  id         String   @id @default(cuid())
+  factor     String
+  window     String
+  capturedAt DateTime @default(now())
+
+  ic         Decimal? @db.Decimal(6, 4)
+  hitRate    Decimal? @db.Decimal(5, 4)
+  sampleSize Int
+
+  /// Korte tekstuele duiding voor de UI (bv. "12m IC valt terug naar 0.04 — drift").
+  narrative String?
+  /// Vrije meta-bag (bv. universe-id, regime-context, top-decile spread).
+  metadata  Json?
+
+  @@unique([factor, capturedAt, window])
+  @@index([factor, capturedAt])
+}
+
+// ============================================================
 //  AUDIT LOG
 // ============================================================
 
