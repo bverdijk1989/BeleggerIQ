@@ -56,7 +56,13 @@ export interface ListFilter {
   year?: number;
   type?: DomainTxType;
   ticker?: string;
+  /** Pagineer-grens. Default 1000 — ruim voor de gemiddelde retail-belegger
+   *  maar voorkomt unbounded scans bij 20k+ transacties in één jaar. */
+  take?: number;
 }
+
+const TRANSACTION_LIST_DEFAULT_TAKE = 1000;
+const TRANSACTION_LIST_MAX_TAKE = 5000;
 
 function rowToDomain(row: PrismaTx): TransactionRow {
   return {
@@ -123,9 +129,14 @@ export const transactionRepository = {
       const end = new Date(Date.UTC(filter.year + 1, 0, 1));
       where.executedAt = { gte: start, lt: end };
     }
+    const take = Math.min(
+      Math.max(1, filter.take ?? TRANSACTION_LIST_DEFAULT_TAKE),
+      TRANSACTION_LIST_MAX_TAKE,
+    );
     const rows = await prisma.transaction.findMany({
       where,
       orderBy: [{ executedAt: "desc" }, { createdAt: "desc" }],
+      take,
     });
     return rows.map(rowToDomain);
   },
