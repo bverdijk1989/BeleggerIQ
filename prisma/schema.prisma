@@ -70,6 +70,12 @@ model UserProfile {
   /// Zie `src/lib/notifications/preferences.ts` voor de canonieke shape.
   /// Default (NULL) = alles aan zodat onboarding-users iets ontvangen.
   notifications Json?
+  /// Voorkeurstaal voor de UI. M26 ondersteunt nu `nl` (default) en `en`.
+  /// Zie `src/lib/i18n/locales.ts` voor de actuele set.
+  locale        String    @default("nl")
+  /// ISO-timestamp wanneer de gebruiker de onboarding-flow heeft afgerond.
+  /// NULL = nog niet onboarded → app stuurt naar /onboarding.
+  onboardedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
