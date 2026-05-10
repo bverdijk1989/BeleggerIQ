@@ -50,6 +50,8 @@ import { loadBehavioralCoach } from "@/lib/analytics/behavioral";
 import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { loadMacroRegimeReport } from "@/lib/analytics/macro-regime";
+import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
+import { ConfidenceSummaryCard } from "@/components/signal-fusion/confidence-summary-card";
 import { CoachCard } from "@/components/behavioral/coach-card";
 import { GoalsSummaryCard } from "@/components/goals/goals-summary-card";
 import { MacroRegimeCard } from "@/components/macro-regime/regime-card";
@@ -438,6 +440,24 @@ export default async function DashboardPage({
   // Macro Regime (Module 5) — 4-quadrant classificatie + asset-impact.
   const macroReport = await loadMacroRegimeReport({ view });
 
+  // Signal Fusion (Module 6) — top-5 posities krijgen een Confidence Score.
+  // Beperkt tot 5 om de page-load tijd binnen perken te houden; de
+  // /score-pagina rekent alle posities door.
+  const topByValue = [...view.valuations]
+    .sort((a, b) => b.marketValueBase - a.marketValueBase)
+    .slice(0, 5);
+  const confidenceRows = await Promise.all(
+    topByValue.map((v) =>
+      loadConfidenceScore({ ticker: v.holding.ticker, view }).then(
+        (score) => ({
+          ticker: v.holding.ticker,
+          name: v.holding.name,
+          score,
+        }),
+      ),
+    ),
+  ).catch(() => []);
+
   // Daily Briefing (Module 2) — context-aggregator + AI-of-fallback +
   // 12u-cache. Pure server-side; geen extra I/O.
   const briefingContext = buildBriefingContext({
@@ -647,6 +667,13 @@ export default async function DashboardPage({
         description="Waar staat de wereldeconomie — en wat betekent dat voor je portefeuille?"
       >
         <MacroRegimeCard report={macroReport} />
+      </Section>
+
+      <Section
+        title="Investment Confidence"
+        description="Per positie een 0..100 score over 10 transparante signaalbronnen — geen black box."
+      >
+        <ConfidenceSummaryCard rows={confidenceRows} />
       </Section>
 
       <Section

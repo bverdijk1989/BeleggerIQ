@@ -88,6 +88,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     group: "analyse",
   },
   {
+    label: "Confidence",
+    href: "/score" as Route,
+    icon: BarChart3,
+    description: "Investment Confidence — 10-signaal fusion-score per positie",
+    group: "analyse",
+  },
+  {
     label: "Transacties",
     href: "/transacties" as Route,
     icon: Receipt,
