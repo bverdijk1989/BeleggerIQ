@@ -5,6 +5,7 @@ export * from "./chat";
 export * from "./research-dossier";
 export * from "./explain";
 export * from "./briefing";
+export * from "./explainability";
 export * from "./provider";
 export {
   explainDashboardSummary,

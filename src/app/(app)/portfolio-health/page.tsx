@@ -4,8 +4,10 @@ import { HealthScoreCard } from "@/components/dashboard/decision-cockpit";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
+import { ExplanationPanel } from "@/components/explainability/explanation-panel";
 import { HealthComponentRow } from "@/components/portfolio-health/health-component-row";
 import { Badge } from "@/components/ui/badge";
+import { explainHealth } from "@/lib/ai/explainability";
 import { buildPortfolioView } from "@/lib/analytics";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
@@ -99,6 +101,8 @@ export default async function PortfolioHealthPage() {
   const activeComponents = score.components.filter((c) => c.status !== "no_data");
   const noDataComponents = score.components.filter((c) => c.status === "no_data");
 
+  const explanation = await explainHealth(score);
+
   return (
     <>
       <PageHeader
@@ -148,6 +152,13 @@ export default async function PortfolioHealthPage() {
             )}
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Uitleg"
+        description="Wat betekent deze score in spreektaal — en wat kan je ermee?"
+      >
+        <ExplanationPanel explanation={explanation} />
       </Section>
 
       <Section

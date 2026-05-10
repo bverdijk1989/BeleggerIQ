@@ -3,8 +3,10 @@ import { ShieldAlert, Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
+import { ExplanationPanel } from "@/components/explainability/explanation-panel";
 import { ConfidenceScorecard } from "@/components/signal-fusion/confidence-scorecard";
 import { Badge } from "@/components/ui/badge";
+import { explainConfidence } from "@/lib/ai/explainability";
 import { buildPortfolioView } from "@/lib/analytics";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
 import { resolveUserFromServer } from "@/lib/auth";
@@ -50,6 +52,8 @@ export default async function ConfidenceDetailPage({ params }: Props) {
     (v) => v.holding.ticker.toUpperCase() === decoded,
   );
 
+  const explanation = await explainConfidence(result);
+
   return (
     <>
       <PageHeader
@@ -62,6 +66,13 @@ export default async function ConfidenceDetailPage({ params }: Props) {
           </Badge>
         }
       />
+
+      <Section
+        title="Uitleg"
+        description="Wat betekent deze score in spreektaal — en wat zijn mogelijke acties?"
+      >
+        <ExplanationPanel explanation={explanation} />
+      </Section>
 
       <Section
         title="Volledige breakdown"
