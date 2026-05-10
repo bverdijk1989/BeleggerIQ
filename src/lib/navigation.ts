@@ -7,6 +7,7 @@ import {
   Briefcase,
   CalendarClock,
   Compass,
+  Globe,
   Newspaper,
   Target,
   Eye,
@@ -77,6 +78,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     href: "/doelen" as Route,
     icon: Target,
     description: "Financiële doelen — pensioen, FIRE, huis, studie + projectie",
+    group: "analyse",
+  },
+  {
+    label: "Macro",
+    href: "/macro" as Route,
+    icon: Globe,
+    description: "Macroregime — groei, inflatie, rente, asset-class impact",
     group: "analyse",
   },
   {

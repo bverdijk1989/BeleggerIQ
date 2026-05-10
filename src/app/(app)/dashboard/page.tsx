@@ -49,8 +49,10 @@ import {
 import { loadBehavioralCoach } from "@/lib/analytics/behavioral";
 import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
+import { loadMacroRegimeReport } from "@/lib/analytics/macro-regime";
 import { CoachCard } from "@/components/behavioral/coach-card";
 import { GoalsSummaryCard } from "@/components/goals/goals-summary-card";
+import { MacroRegimeCard } from "@/components/macro-regime/regime-card";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
 import { fetchRegimeInputs } from "@/lib/data/regime";
@@ -433,6 +435,9 @@ export default async function DashboardPage({
   // Financial Goals (Module 4) — alle actieve doelen + projectie.
   const goalsResult = await loadGoalsForUser({ userEmail: auth.user.email });
 
+  // Macro Regime (Module 5) — 4-quadrant classificatie + asset-impact.
+  const macroReport = await loadMacroRegimeReport({ view });
+
   // Daily Briefing (Module 2) — context-aggregator + AI-of-fallback +
   // 12u-cache. Pure server-side; geen extra I/O.
   const briefingContext = buildBriefingContext({
@@ -635,6 +640,13 @@ export default async function DashboardPage({
         description="Wat betekent je portefeuille voor jouw leven? Pensioen, FIRE, huis, studie — koppel ze aan je strategie."
       >
         <GoalsSummaryCard combined={goalsResult.combined} />
+      </Section>
+
+      <Section
+        title="Macroregime"
+        description="Waar staat de wereldeconomie — en wat betekent dat voor je portefeuille?"
+      >
+        <MacroRegimeCard report={macroReport} />
       </Section>
 
       <Section
