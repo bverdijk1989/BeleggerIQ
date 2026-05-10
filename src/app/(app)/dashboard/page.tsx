@@ -52,6 +52,7 @@ import {
 } from "@/lib/alerts";
 import { alertRepository } from "@/lib/data";
 import { loadBehavioralCoach } from "@/lib/analytics/behavioral";
+import { loadEnrichedWatchlist } from "../watchlist/load-watchlist";
 import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { loadMacroRegimeReport } from "@/lib/analytics/macro-regime";
@@ -486,6 +487,12 @@ export default async function DashboardPage({
   });
   const briefing = await loadDailyBriefing({ context: briefingContext });
 
+  // Watchlist-intelligence (M11) — laad lichtgewicht en gebruik voor
+  // WATCHLIST_OPPORTUNITY + VALUATION_SIGNAL alerts. Faal-safe.
+  const watchlistRows = await loadEnrichedWatchlist(auth.user.email).catch(
+    () => [] as Awaited<ReturnType<typeof loadEnrichedWatchlist>>,
+  );
+
   // Alerts engine (M30) — draai bij elke dashboard-load. Idempotent op
   // dedupeKey, dus tweemaal openen op één dag = één rij. Faal-safe:
   // als de DB-write valt, mag de dashboard-render NIET breken.
@@ -551,6 +558,51 @@ export default async function DashboardPage({
           briefingDate: briefing.briefingDate,
           headline: briefing.headline,
           mode: briefing.mode,
+        },
+        watchlist: {
+          asOf: asOfIso,
+          hits: watchlistRows
+            .filter((r) => {
+              const t = r.item.targetPrice;
+              const high = r.item.targetPriceHigh;
+              const p = r.quote?.price;
+              if (typeof p !== "number") return false;
+              if (typeof t === "number" && p <= t) return true;
+              if (typeof high === "number" && p >= high) return true;
+              return false;
+            })
+            .map((r) => ({
+              ticker: r.item.ticker,
+              name: r.item.name ?? r.item.ticker,
+              currentPrice: r.quote!.price,
+              targetPrice:
+                typeof r.item.targetPrice === "number" &&
+                r.quote!.price <= r.item.targetPrice
+                  ? r.item.targetPrice
+                  : (r.item.targetPriceHigh as number),
+              direction:
+                typeof r.item.targetPrice === "number" &&
+                r.quote!.price <= r.item.targetPrice
+                  ? "BELOW"
+                  : "ABOVE",
+              currency: r.quote?.currency ?? null,
+            })),
+        },
+        valuation: {
+          asOf: asOfIso,
+          positions: watchlistRows
+            .filter((r) => r.intelligence !== null)
+            .map((r) => ({
+              ticker: r.item.ticker,
+              name: r.item.name ?? r.item.ticker,
+              valueSubScore: (() => {
+                const sig = r.intelligence!.signals.find(
+                  (s) => s.key === "VALUATION_IMPROVED" && s.available,
+                );
+                return sig ? (sig.metric as number | null) : null;
+              })(),
+              fcfYield: null,
+            })),
         },
       });
       if (evalResult.delivered.length > 0) {
