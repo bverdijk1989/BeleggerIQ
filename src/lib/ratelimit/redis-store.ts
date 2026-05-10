@@ -97,51 +97,124 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 }
 
 /**
- * Redis-backed implementatie — skeleton. Faalt expliciet zolang er
- * geen redis-client is. De Lua-script + ioredis wiring komt in M21
- * follow-up wanneer Redis-infra is gekozen.
+ * Redis-backed implementatie via Upstash REST API.
+ *
+ * **Activatie**: zet `REDIS_URL` (rest-URL van Upstash) + `REDIS_TOKEN`
+ * env-vars. Code valt automatisch terug op in-memory zonder die.
+ *
+ * Implementeert atomic refill+consume via Upstash `eval`-RPC met de
+ * Lua-script hierboven. Idle-bucket-TTL is 10 minuten zodat onbenutte
+ * IPs vanzelf opruimen.
  */
-export class RedisRateLimitStore implements RateLimitStore {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly _TODO_redis_client: unknown;
 
-  constructor(redisClient: unknown) {
-    this._TODO_redis_client = redisClient;
-    log.warn(
-      "ratelimit:redis",
-      "RedisRateLimitStore is een skeleton — niet voor productie tot Lua-script + ioredis wiring landt",
-    );
-  }
+const LUA_CONSUME = `
+local state = redis.call('HMGET', KEYS[1], 'tokens', 'lastRefillMs')
+local capacity = tonumber(ARGV[1])
+local refillPerSec = tonumber(ARGV[2])
+local nowMs = tonumber(ARGV[3])
+local tokens = tonumber(state[1])
+if tokens == nil then tokens = capacity end
+local last = tonumber(state[2])
+if last == nil then last = nowMs end
+local elapsed = (nowMs - last) / 1000.0
+if elapsed < 0 then elapsed = 0 end
+tokens = math.min(capacity, tokens + elapsed * refillPerSec)
+local allowed = 0
+if tokens >= 1 then
+  tokens = tokens - 1
+  allowed = 1
+end
+redis.call('HMSET', KEYS[1], 'tokens', tostring(tokens), 'lastRefillMs', tostring(nowMs))
+redis.call('EXPIRE', KEYS[1], 600)
+return {allowed, tostring(tokens)}
+`;
+
+interface UpstashLikeClient {
+  eval(script: string, keys: string[], args: string[]): Promise<unknown>;
+}
+
+export class RedisRateLimitStore implements RateLimitStore {
+  constructor(private readonly client: UpstashLikeClient) {}
 
   async consume(
-    _key: string,
-    _config: BucketConfig,
-    _nowMs: number,
+    key: string,
+    config: BucketConfig,
+    nowMs: number,
   ): Promise<ConsumeResult> {
-    void this._TODO_redis_client;
-    throw new Error(
-      "RedisRateLimitStore.consume not implemented — install ioredis + wire Lua script per docs in redis-store.ts",
-    );
+    try {
+      const result = (await this.client.eval(
+        LUA_CONSUME,
+        [`rl:${key}`],
+        [
+          String(config.capacity),
+          String(config.refillPerSec),
+          String(nowMs),
+        ],
+      )) as [number, string];
+      const allowed = result[0] === 1;
+      const remaining = Number(result[1]);
+      const state: BucketState = {
+        tokens: remaining,
+        lastRefillMs: nowMs,
+      };
+      if (allowed) {
+        return {
+          allowed: true,
+          remaining,
+          retryAfterMs: 0,
+          state,
+        };
+      }
+      const tokensNeeded = 1 - remaining;
+      const retryAfterMs = Math.ceil(
+        (tokensNeeded / config.refillPerSec) * 1000,
+      );
+      return { allowed: false, remaining, retryAfterMs, state };
+    } catch (error) {
+      log.error("ratelimit:redis", "redis_consume_failed", {
+        rawMessage: error instanceof Error ? error.message : String(error),
+      });
+      // Fail-open bij Redis-fout: niet de hele app blokkeren als Redis
+      // tijdelijk onbereikbaar is. Operator monitort errors via logs.
+      return {
+        allowed: true,
+        remaining: config.capacity,
+        retryAfterMs: 0,
+        state: createBucket(config, nowMs),
+      };
+    }
   }
 
   async prune(_nowMs: number): Promise<number> {
+    // Upstash kent zelf TTL via EXPIRE in de Lua-script — server-side
+    // pruning niet nodig.
     return 0;
   }
 }
 
 /**
- * Factory — kiest backend o.b.v. `RATELIMIT_BACKEND` env-var.
- * Default: in-memory (zodat huidige deploys ongewijzigd blijven).
+ * Factory — kiest backend o.b.v. env. Volgorde:
+ *  1. `REDIS_URL` + `REDIS_TOKEN` aanwezig + `RATELIMIT_BACKEND=redis` → Upstash
+ *  2. Anders → in-memory (default)
  */
 export function createRateLimitStore(): RateLimitStore {
   const backend = (process.env.RATELIMIT_BACKEND ?? "memory").toLowerCase();
-  if (backend === "redis") {
-    log.warn(
-      "ratelimit:store",
-      "RATELIMIT_BACKEND=redis maar Redis-skeleton is nog niet geïmplementeerd — fallback op in-memory",
-    );
-    // TODO(M21): import("ioredis") + new Redis(REDIS_URL) + return RedisRateLimitStore.
-    return new InMemoryRateLimitStore();
+  const url = process.env.REDIS_URL;
+  const token = process.env.REDIS_TOKEN;
+  if (backend === "redis" && url && token) {
+    try {
+      // Lazy-import zodat de bundle niet altijd Upstash trekt.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
+      const client = new Redis({ url, token });
+      log.info("ratelimit:store", "redis_backend_active");
+      return new RedisRateLimitStore(client as UpstashLikeClient);
+    } catch (error) {
+      log.warn("ratelimit:store", "redis_init_failed_fallback_to_memory", {
+        rawMessage: error instanceof Error ? error.message : String(error),
+      });
+      return new InMemoryRateLimitStore();
+    }
   }
   return new InMemoryRateLimitStore();
 }

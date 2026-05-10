@@ -42,16 +42,42 @@ describe("InMemoryRateLimitStore — interface conformance", () => {
   });
 });
 
-describe("RedisRateLimitStore — skeleton-gedrag", () => {
-  it("constructor logt warning maar throwt niet", () => {
-    expect(() => new RedisRateLimitStore({})).not.toThrow();
+describe("RedisRateLimitStore — Upstash-backed", () => {
+  it("constructor accepteert UpstashLikeClient", () => {
+    const fakeClient = { eval: async () => [1, "10"] };
+    expect(() => new RedisRateLimitStore(fakeClient)).not.toThrow();
   });
 
-  it("consume throws expliciete not-implemented error", async () => {
-    const store = new RedisRateLimitStore({});
-    await expect(store.consume("k1", CONFIG, 0)).rejects.toThrow(
-      /not implemented/i,
-    );
+  it("consume bij eval-fout valt fail-open terug op allowed=true", async () => {
+    const failingClient = {
+      eval: async () => {
+        throw new Error("redis down");
+      },
+    };
+    const store = new RedisRateLimitStore(failingClient);
+    const result = await store.consume("k1", CONFIG, 0);
+    // Fail-open: bij Redis-fout ZIJN we permissive (anders breekt de hele app).
+    expect(result.allowed).toBe(true);
+  });
+
+  it("consume met healthy client returnt allowed=true bij token", async () => {
+    const okClient = {
+      eval: async () => [1, "9"],
+    };
+    const store = new RedisRateLimitStore(okClient);
+    const result = await store.consume("k1", CONFIG, 0);
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBe(9);
+  });
+
+  it("consume met depleted bucket returnt allowed=false + retryAfterMs", async () => {
+    const okClient = {
+      eval: async () => [0, "0"],
+    };
+    const store = new RedisRateLimitStore(okClient);
+    const result = await store.consume("k1", CONFIG, 0);
+    expect(result.allowed).toBe(false);
+    expect(result.retryAfterMs).toBeGreaterThan(0);
   });
 });
 

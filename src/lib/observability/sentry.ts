@@ -46,14 +46,21 @@ async function loadSentry(): Promise<SentryLike | null> {
     "m",
     "return import(m)",
   ) as (m: string) => Promise<unknown>;
-  const moduleName =
-    typeof window === "undefined" ? "@sentry/node" : "@sentry/browser";
-  try {
-    const mod = await dynamicImport(moduleName);
-    return mod as SentryLike;
-  } catch {
-    return null;
+  // Probeer eerst de Next-specific wrapper, dan fall back naar
+  // platform-specifieke variant.
+  const candidates =
+    typeof window === "undefined"
+      ? ["@sentry/nextjs", "@sentry/node"]
+      : ["@sentry/nextjs", "@sentry/browser"];
+  for (const moduleName of candidates) {
+    try {
+      const mod = await dynamicImport(moduleName);
+      return mod as SentryLike;
+    } catch {
+      /* try next */
+    }
   }
+  return null;
 }
 
 /**
