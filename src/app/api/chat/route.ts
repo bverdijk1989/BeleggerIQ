@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { buildAssistantResponse } from "@/lib/ai/chat";
+import { appendChatMessage } from "@/lib/ai/chat-memory";
 import { resolveUser } from "@/lib/auth";
+import { portfolioRepository } from "@/lib/data";
 import {
   expectObject,
   jsonError,
@@ -85,6 +87,31 @@ export async function POST(request: NextRequest) {
       regime: loaded.regime,
       ctx: loaded.ctx,
     });
+
+    // Persisteer beide kanten van het gesprek (chat-memory). Failure
+    // mag de response niet blokkeren — opslag is best-effort.
+    void (async () => {
+      try {
+        const userCtx = await portfolioRepository.findUserContextByEmail(
+          auth.user.email,
+        );
+        if (userCtx?.userId) {
+          await appendChatMessage({
+            userId: userCtx.userId,
+            role: "user",
+            content: message.value ?? "",
+          });
+          await appendChatMessage({
+            userId: userCtx.userId,
+            role: "assistant",
+            content: response.content,
+            intent: response.intent,
+          });
+        }
+      } catch {
+        /* swallow — niet kritisch */
+      }
+    })();
 
     const payload: ChatResponseBody = {
       message: response,

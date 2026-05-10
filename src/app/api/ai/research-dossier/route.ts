@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { buildResearchNarrative } from "@/lib/ai/research-narrative";
 import { loadResearchDossier } from "@/lib/ai/research-dossier-loader";
 import { resolveUser } from "@/lib/auth";
 import {
@@ -56,13 +57,25 @@ export async function POST(request: NextRequest) {
       ticker: tickerStrict.value,
     });
 
-    return NextResponse.json(result, {
-      headers: {
-        // Dossier per (user, ticker) — korte cache, in lijn met de
-        // andere AI-routes.
-        "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+    // AI-uplift: voegt een rijkere narrative toe wanneer een AI-provider
+    // beschikbaar is. Faalt gracefully terug op deterministische
+    // fallback bij elke fout. Niet-blocking — dossier-output blijft
+    // intact ongeacht narrative-status.
+    const narrative = await buildResearchNarrative(result.dossier).catch(
+      () => null,
+    );
+
+    return NextResponse.json(
+      { ...result, narrative },
+      {
+        headers: {
+          // Dossier per (user, ticker) — korte cache, in lijn met de
+          // andere AI-routes.
+          "Cache-Control":
+            "private, max-age=60, stale-while-revalidate=300",
+        },
       },
-    });
+    );
   } catch (error) {
     return jsonServerError(
       "api:ai:research-dossier",

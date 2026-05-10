@@ -1,5 +1,6 @@
 import { Check, Star } from "lucide-react";
 
+import { UpgradeButton } from "@/components/billing/upgrade-button";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
 import { TierSwitcher } from "@/components/entitlements/tier-switcher";
@@ -149,10 +150,22 @@ export default async function PricingPage() {
                     <p className="rounded-md border border-border/40 bg-muted/10 px-3 py-2 text-center text-xs text-muted-foreground">
                       Lagere tier
                     </p>
-                  ) : (
-                    <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-center text-xs font-medium text-primary">
+                  ) : t.tier === "ADVISOR" || t.monthlyPriceEur === null ? (
+                    <a
+                      href="mailto:sales@beleggeriq.nl?subject=Advisor%20interesse"
+                      className="block rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-center text-xs font-medium text-primary hover:bg-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
                       {t.ctaLabel}
-                    </p>
+                    </a>
+                  ) : auth.ok ? (
+                    <UpgradeButton tier={t.tier} label={t.ctaLabel} />
+                  ) : (
+                    <a
+                      href="/login"
+                      className="block rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-center text-xs font-medium text-primary hover:bg-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      Log in om te upgraden
+                    </a>
                   )}
                 </div>
               </article>
@@ -233,10 +246,14 @@ export default async function PricingPage() {
         </div>
       </Section>
 
-      {auth.ok && (
+      {/* Tier-switcher alleen tonen wanneer dev-override actief is OF
+          wanneer ENTITLEMENT_OVERRIDE_TIER expliciet aan staat. In
+          productie (Stripe-checkout actief) is dit niet nodig. */}
+      {auth.ok && (tierResult.overrideActive ||
+        process.env.NODE_ENV !== "production") && (
         <Section
           title="Tier switcher (dev)"
-          description="Voor ontwikkeling en QA: schakel je eigen tier zodat je het paywall-gedrag kunt zien. In productie wordt dit door de billing-provider (Stripe/Mollie) gestuurd."
+          description="Voor ontwikkeling en QA: schakel je eigen tier zodat je het paywall-gedrag kunt zien."
         >
           <TierSwitcher
             current={tierResult.tier}
