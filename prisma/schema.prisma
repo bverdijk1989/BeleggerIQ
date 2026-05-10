@@ -39,8 +39,9 @@ model User {
   strategyPresets        StrategyPreset[]
   backtestRuns           BacktestRun[]
   decisionSnapshots      DecisionSnapshot[]
-  notificationDeliveries NotificationDelivery[]
-  auditEntries           AuditEntry[]
+  notificationDeliveries  NotificationDelivery[]
+  auditEntries            AuditEntry[]
+  behavioralWarningStates BehavioralWarningState[]
 
   @@index([email])
 }
@@ -736,6 +737,43 @@ model MagicLinkToken {
 }
 
 // ============================================================
+//  BEHAVIORAL COACH — gebruiker-state per gedrags-signaal
+// ============================================================
+
+/// State-record voor één behavioral signal per (user, signalId).
+///
+/// **Engine-laag** (in `src/lib/analytics/behavioral`) genereert
+/// signalen deterministisch op basis van portfolio + transacties. Deze
+/// tabel slaat alleen de **gebruiker-interactie** op: wel/niet/snooze.
+///
+/// Conventies:
+///  - `signalId` is stabiel per (signalKey, target), bv.
+///    `OVERCONCENTRATION:ASML` of `OVERTRADING:GLOBAL`.
+///  - `status = ACTIVE` is de default; afwezigheid van een rij = ACTIVE.
+///  - `SNOOZED` records worden na `snoozedUntil` weer als ACTIVE
+///    behandeld (engine + UI lezen `snoozedUntil` en interpreteren).
+///  - `DISMISSED` is permanent — gebruiker kan handmatig terugzetten via
+///    de /coach detail-pagina.
+model BehavioralWarningState {
+  id           String                  @id @default(cuid())
+  userId       String
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signalId     String
+  status       BehavioralWarningStatus @default(ACTIVE)
+  /// Geldig wanneer status = SNOOZED. Daarna treedt het signaal weer
+  /// als ACTIVE op zonder dat de gebruiker iets hoeft te doen.
+  snoozedUntil DateTime?
+  /// Optionele user-notitie ("ik handel deze zelf in juni").
+  reasonNote   String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@unique([userId, signalId])
+  @@index([userId, status])
+  @@index([snoozedUntil])
+}
+
+// ============================================================
 //  ENUMS
 // ============================================================
 
@@ -746,6 +784,12 @@ enum InvestorType {
   DIVIDEND
   FACTOR
   BALANCED
+}
+
+enum BehavioralWarningStatus {
+  ACTIVE
+  DISMISSED
+  SNOOZED
 }
 
 enum InvestmentObjective {

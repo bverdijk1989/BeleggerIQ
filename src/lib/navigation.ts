@@ -6,6 +6,7 @@ import {
   Bot,
   Briefcase,
   CalendarClock,
+  Compass,
   Newspaper,
   Eye,
   FileText,
@@ -61,6 +62,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     href: "/briefing" as Route,
     icon: Newspaper,
     description: "Dagelijkse AI-briefing — bewegingen, risico's, focuspunt",
+    group: "analyse",
+  },
+  {
+    label: "Coach",
+    href: "/coach" as Route,
+    icon: Compass,
+    description: "Behavioral coach — 8 gedragspatronen + reflectievragen",
     group: "analyse",
   },
   {
