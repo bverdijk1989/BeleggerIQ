@@ -47,8 +47,10 @@ import {
   loadDailyBriefing,
 } from "@/lib/ai/briefing";
 import { loadBehavioralCoach } from "@/lib/analytics/behavioral";
+import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { CoachCard } from "@/components/behavioral/coach-card";
+import { GoalsSummaryCard } from "@/components/goals/goals-summary-card";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
 import { fetchRegimeInputs } from "@/lib/data/regime";
@@ -428,6 +430,9 @@ export default async function DashboardPage({
   // serveert coaching-vragen + dismiss/snooze-state.
   const coachResult = await loadBehavioralCoach({ userEmail: auth.user.email });
 
+  // Financial Goals (Module 4) — alle actieve doelen + projectie.
+  const goalsResult = await loadGoalsForUser({ userEmail: auth.user.email });
+
   // Daily Briefing (Module 2) — context-aggregator + AI-of-fallback +
   // 12u-cache. Pure server-side; geen extra I/O.
   const briefingContext = buildBriefingContext({
@@ -623,6 +628,13 @@ export default async function DashboardPage({
         description="Coachende reflecties op je gedrag — concentratie, handelsfrequentie, panic/FOMO, drift. Geen advies, wel vragen."
       >
         <CoachCard report={coachResult.report} signals={coachResult.signals} />
+      </Section>
+
+      <Section
+        title="Financiële doelen"
+        description="Wat betekent je portefeuille voor jouw leven? Pensioen, FIRE, huis, studie — koppel ze aan je strategie."
+      >
+        <GoalsSummaryCard combined={goalsResult.combined} />
       </Section>
 
       <Section

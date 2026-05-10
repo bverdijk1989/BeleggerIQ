@@ -8,6 +8,7 @@ import {
   CalendarClock,
   Compass,
   Newspaper,
+  Target,
   Eye,
   FileText,
   FlaskConical,
@@ -69,6 +70,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     href: "/coach" as Route,
     icon: Compass,
     description: "Behavioral coach — 8 gedragspatronen + reflectievragen",
+    group: "analyse",
+  },
+  {
+    label: "Doelen",
+    href: "/doelen" as Route,
+    icon: Target,
+    description: "Financiële doelen — pensioen, FIRE, huis, studie + projectie",
     group: "analyse",
   },
   {

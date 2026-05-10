@@ -42,6 +42,7 @@ model User {
   notificationDeliveries  NotificationDelivery[]
   auditEntries            AuditEntry[]
   behavioralWarningStates BehavioralWarningState[]
+  financialGoals          FinancialGoal[]
 
   @@index([email])
 }
@@ -774,6 +775,55 @@ model BehavioralWarningState {
 }
 
 // ============================================================
+//  FINANCIAL GOALS — gebruikersdoelen + projectie-input
+// ============================================================
+
+/// Financieel doel — pensioen, FIRE, dividendinkomen, vermogensgroei,
+/// huis kopen, studie, buffer, of CUSTOM. Dient als input voor de
+/// projectiecalculator + scenarios; wordt niet automatisch gekoppeld
+/// aan transacties (de gebruiker beheert `currentAmount` zelf).
+///
+/// Conventies:
+///  - **Bedragen** in `baseCurrency` (default EUR), Decimal voor precisie.
+///  - **`expectedAnnualReturn`** is een fractie (0.06 = 6%/jaar). Default
+///    afgeleid uit `riskProfile`.
+///  - **`riskProfile`** stuurt zowel default-rendement als de breedte
+///    van pessimistic/optimistic scenario-spread.
+///  - **`isActive`** false = soft-delete; bewaart historiek voor audit.
+model FinancialGoal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type GoalType
+  /// Vrije naam — voor CUSTOM verplicht; voor preset-types optioneel
+  /// (UI vult default-naam in).
+  name String
+
+  /// Doelbedrag in `baseCurrency`.
+  targetAmount         Decimal @db.Decimal(20, 2)
+  /// Streefdatum waarop het doelbedrag bereikt zou moeten zijn.
+  targetDate           DateTime
+  /// Maandelijkse inleg richting dit doel, in `baseCurrency`.
+  monthlyContribution  Decimal @db.Decimal(14, 2) @default(0)
+  /// Reeds opgebouwd bedrag (door de gebruiker bijgehouden).
+  currentAmount        Decimal @db.Decimal(20, 2) @default(0)
+  /// Verwacht jaarrendement, fractie. Default afhankelijk van riskProfile.
+  expectedAnnualReturn Decimal @db.Decimal(6, 4)
+  riskProfile          RiskTolerance @default(BALANCED)
+
+  baseCurrency String @default("EUR")
+  description  String?
+
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, isActive])
+  @@index([userId, targetDate])
+}
+
+// ============================================================
 //  ENUMS
 // ============================================================
 
@@ -790,6 +840,17 @@ enum BehavioralWarningStatus {
   ACTIVE
   DISMISSED
   SNOOZED
+}
+
+enum GoalType {
+  RETIREMENT
+  FIRE
+  DIVIDEND_INCOME
+  WEALTH_GROWTH
+  HOME_PURCHASE
+  EDUCATION
+  EMERGENCY_FUND
+  CUSTOM
 }
 
 enum InvestmentObjective {
