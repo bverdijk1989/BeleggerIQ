@@ -25,16 +25,51 @@ export interface AddToWatchlistResult {
   duplicated?: boolean;
 }
 
+/**
+ * Strikte input-validatie. Geen Zod-dep; pure-functie checks zijn licht
+ * en testbaar. Defense-in-depth: server-action mag NOOIT vertrouwen dat
+ * de client het type-contract heeft gerespecteerd.
+ */
+function validateAddToWatchlistInput(
+  input: unknown,
+): { ok: true; value: { ticker: string; name?: string; note?: string } } | { ok: false; error: string } {
+  if (!input || typeof input !== "object") {
+    return { ok: false, error: "Invalid input." };
+  }
+  const obj = input as Record<string, unknown>;
+  if (typeof obj.ticker !== "string") {
+    return { ok: false, error: "Ticker ontbreekt of is geen string." };
+  }
+  const ticker = obj.ticker.trim().toUpperCase();
+  if (ticker.length === 0 || ticker.length > 32) {
+    return { ok: false, error: "Ticker moet 1-32 tekens zijn." };
+  }
+  // Tickers zijn alfanumeriek + . - / (bv. BRK.B, RDS-A, EUNL.DE).
+  if (!/^[A-Z0-9./\-]+$/.test(ticker)) {
+    return { ok: false, error: "Ticker bevat ongeldige tekens." };
+  }
+  const name =
+    typeof obj.name === "string" && obj.name.length <= 200
+      ? obj.name.trim()
+      : undefined;
+  const note =
+    typeof obj.note === "string" && obj.note.length <= 500
+      ? obj.note.trim()
+      : undefined;
+  return { ok: true, value: { ticker, name, note } };
+}
+
 export async function addToWatchlist(
   input: AddToWatchlistInput,
 ): Promise<AddToWatchlistResult> {
   const auth = await resolveUserFromServer();
   if (!auth.ok) return { ok: false, message: auth.error };
 
-  const ticker = input.ticker.trim().toUpperCase();
-  if (!ticker) {
-    return { ok: false, message: "Ticker ontbreekt." };
+  const validated = validateAddToWatchlistInput(input);
+  if (!validated.ok) {
+    return { ok: false, message: validated.error };
   }
+  const { ticker, name, note } = validated.value;
 
   try {
     const user = await prisma.user.findUnique({
@@ -59,12 +94,12 @@ export async function addToWatchlist(
       create: {
         userId: user.id,
         ticker,
-        name: input.name ?? null,
-        note: input.note ?? null,
+        name: name ?? null,
+        note: note ?? null,
       },
       update: {
-        name: input.name ?? undefined,
-        note: input.note ?? undefined,
+        name: name ?? undefined,
+        note: note ?? undefined,
       },
     });
 

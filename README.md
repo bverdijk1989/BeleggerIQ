@@ -2,6 +2,36 @@
 
 Productiegerichte portfolio-analyseapp voor Nederlandse langetermijnbeleggers. Deze foundation bundelt portfolio-analyse, factor scoring, risicoanalyse, maandelijkse koopbeslissingen, market regime analyse, backtesting en AI explainability onder één modulaire architectuur.
 
+## Wat maakt BeleggerIQ anders?
+
+Drie principes die we structureel hard maken in de code, niet alleen in marketing:
+
+- **Geen black box** — elke score is herleidbaar naar 10 transparante signalen (kwaliteit, waardering, momentum, macro, fit). De methodologie-pagina toont live constants en assumptions; je kunt elke berekening reproduceren met de open-source engines in `src/lib/analytics/`. AI-uitleg is een vertaal-laag, geen voorspeller.
+- **Let winners run** — de rebalancer trimt geen winnaars automatisch. Alleen bij echte fragility (zwakke factors + concentratie boven 2× cap) komt er een suggestie. Buffett-laag: tijd in de markt > markt timen.
+- **Signaling by coverage** — scores worden expliciet gedowngrade naar `WATCH` bij <30% factor-coverage. Voorkomt overconfidence op sparse data. Simons-laag: data-quality is zichtbaar, niet weggemoffeld.
+
+**Dat betekent dus**: dit is een analyse-platform, geen robo-advisor en geen execution-broker. Je houdt regie over je eigen broker (typisch DEGIRO); wij geven inzicht, jij beslist. Voor day-trading, opties of crypto zijn we niet de juiste tool.
+
+## Topbelegger-validatie
+
+Elke module wordt expliciet gevalideerd tegen 5 lenzen — bevestigend of corrigerend:
+
+- **Buffett**: stimuleert langetermijndenken, vertrouwen door transparantie
+- **Dalio**: macro-regimes + scenario-stress-tests + diversificatie-checks
+- **Lynch**: één-zin verdicts, geen metric-overload, spreektaal-NL
+- **Simons**: deterministische pure-functie engines, drempels in const, datakwaliteit zichtbaar
+- **Wood**: AI-native explainability-laag, schaalbaar voor toekomstige uplifts
+
+Zie `docs/WORLD_CLASS_VALIDATION_REPORT.md` voor de volledige scoring per dimensie.
+
+## Privacy & compliance
+
+- Privacy-first community-benchmarks (k-anonimiteit, opt-in per scope) — zie `docs/COMMUNITY_PRIVACY_MODEL.md`
+- GDPR-flows operationeel: data-export (`/api/user/export`) + account-delete (`/api/user/delete`)
+- `/privacy` en `/terms` pagina's beschikbaar (concept-versie; advocaat-review nodig vóór commerciële launch)
+- Security-hardening: HMAC-signed sessies, PII-redactor in logs, AI-prompt-guard, rate-limit per /api/-prefix — zie `docs/SECURITY_REVIEW.md`
+- Zonder AFM-vergunning: informatief platform, geen beleggingsadvies of vermogensbeheer
+
 ## Stack
 
 - **Next.js 15 (App Router)** met TypeScript in strict mode

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { ComplianceBanner } from "@/components/common/compliance-banner";
+import { AppFooter } from "@/components/common/footer";
 import { resolveUserFromServer } from "@/lib/auth";
 import { alertRepository, portfolioRepository } from "@/lib/data";
 import { resolveServerLocale } from "@/lib/i18n";
@@ -35,12 +36,13 @@ export async function AppShell({ children }: AppShellProps) {
           uxMode={ctx.uxMode}
           unreadAlertsCount={ctx.unreadAlertsCount}
         />
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
+        <main className="flex-1 px-3 py-6 sm:px-4 md:px-8 md:py-8">
           <div className="mx-auto w-full max-w-7xl space-y-6">
             <ComplianceBanner locale={locale} />
             {children}
           </div>
         </main>
+        <AppFooter />
       </div>
     </div>
   );

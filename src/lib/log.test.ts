@@ -53,7 +53,10 @@ describe("log — secret-redactie", () => {
       secret: "shhh",
     });
     const arg = spy.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(arg.email).toBe("u@e.nl");
+    // Email-VALUE wordt nu ook geredacteerd via value-level PII-scrubber
+    // (Module 17). Defense-in-depth: niet alleen op veld-naam, ook op
+    // string-pattern. `[email-redacted]` is de placeholder.
+    expect(arg.email).toBe("[email-redacted]");
     expect(arg.password).toBe("[redacted]");
     expect(arg.token).toBe("[redacted]");
     expect(arg.secret).toBe("[redacted]");
@@ -112,7 +115,8 @@ describe("log — sinks", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.scope).toBe("auth");
     expect(events[0]?.fields.password).toBe("[redacted]");
-    expect(events[0]?.fields.email).toBe("u@e.nl");
+    // Email-VALUE wordt geredacteerd via value-level PII-scrubber (Module 17).
+    expect(events[0]?.fields.email).toBe("[email-redacted]");
     expect(typeof events[0]?.ts).toBe("string");
   });
 

@@ -59,7 +59,7 @@ export class OpenAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          temperature: request.temperature ?? 0.2,
+          temperature: request.temperature ?? 0,
           max_tokens: request.maxOutputTokens ?? 600,
           stop: request.stop,
           messages: [

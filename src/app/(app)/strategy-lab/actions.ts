@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { audit } from "@/lib/audit";
 import { resolveUserFromServer } from "@/lib/auth";
 import {
   strategyPresetRepository,
@@ -81,16 +82,37 @@ export async function savePreset(
     revalidatePath("/strategy-lab");
     revalidatePath("/backtest");
 
+    // Audit-trail: strategy-config-mutaties zijn relevant voor compliance
+    // en debugging (gebruiker rapporteert "mijn factor-weights klopten niet").
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "policy",
+      action: "strategy_preset_save",
+      resourceType: "StrategyPreset",
+      resourceId: saved.id,
+      summary: `Strategy-preset "${saved.name}" opgeslagen`,
+      metadata: {
+        slug: saved.slug,
+        maxPositions: saved.maxPositions ?? null,
+        maxPositionWeight: saved.maxPositionWeight ?? null,
+      },
+    });
+
     return {
       ok: true,
       message: `Preset "${saved.name}" opgeslagen.`,
       preset: saved,
     };
   } catch (error) {
-    log.error("strategy-lab:save", "preset save failed", { error });
-    const message =
-      error instanceof Error ? error.message : "Onbekende fout.";
-    return { ok: false, message };
+    // Sanitized client-response (Module 15-pattern).
+    log.error("strategy-lab:save", "preset save failed", {
+      rawMessage: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : "non-error",
+    });
+    return {
+      ok: false,
+      message: "Opslaan mislukt door een interne fout. Probeer het opnieuw.",
+    };
   }
 }
 
@@ -103,6 +125,14 @@ export async function deletePreset(
   const result = await strategyPresetRepository.deleteById(id, auth.user.email);
   if (result.ok) {
     revalidatePath("/strategy-lab");
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "policy",
+      action: "strategy_preset_delete",
+      resourceType: "StrategyPreset",
+      resourceId: id,
+      summary: "Strategy-preset verwijderd",
+    });
   }
   return {
     ok: result.ok,

@@ -31,6 +31,29 @@ export interface CockpitToneStyle {
   accent: string;
 }
 
+/**
+ * **Color-blind helper** — symbool/prefix per tone zodat informatie niet
+ * uitsluitend in kleur zit. Wordt gebruikt door tone-cards die naast
+ * kleur ook een tekst-prefix willen tonen ("⚠ Risico", "✓ OK", "✕ Kritiek").
+ *
+ * Default zijn we Lynch-laag terughoudend met emoji; voor a11y-modus
+ * komt deze map handig zodra we 'em activeren.
+ */
+export const TONE_PREFIX: Record<CockpitTone, string> = {
+  good: "✓",
+  neutral: "•",
+  warning: "⚠",
+  critical: "✕",
+};
+
+/** Screen-reader-only label per tone — voor `<span className="sr-only">`. */
+export const TONE_SR_LABEL: Record<CockpitTone, string> = {
+  good: "Positief",
+  neutral: "Neutraal",
+  warning: "Aandachtspunt",
+  critical: "Kritiek",
+};
+
 export const TONE_STYLES: Record<CockpitTone, CockpitToneStyle> = {
   good: {
     container: "border-emerald-500/40 bg-emerald-500/5",

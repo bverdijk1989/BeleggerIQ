@@ -21,7 +21,9 @@ export interface AICompletionRequest {
   user: string;
   /** Max output tokens — providers respecteren best-effort. */
   maxOutputTokens?: number;
-  /** Temperatuur 0..1; default 0.2 voor zakelijke output. */
+  /** Temperatuur 0..1; **default 0** voor reproduceerbare output. Hoger
+   *  alleen wanneer een caller bewust variatie wil (creative-style).
+   *  Reproduceerbaarheid is de Simons-laag-default. */
   temperature?: number;
   /** Stop-tokens / stop-sequences. */
   stop?: string[];

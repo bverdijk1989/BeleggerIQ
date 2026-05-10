@@ -14,6 +14,8 @@
 
 import type { ISODateString } from "@/types/common";
 
+import { recordAICost } from "@/lib/perf";
+
 import {
   resolveAIProvider,
   type AIProvider,
@@ -131,8 +133,18 @@ async function tryAi(
     const response = await provider.complete({
       system: prompt.system,
       user: prompt.user,
-      temperature: 0.2,
+      // Reproduceerbaarheid (Simons-laag): zelfde input = zelfde output.
+      temperature: 0,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
+    });
+    // Cost-meter wireup (Module 16) — tokens-in/out → EUR-aggregator.
+    recordAICost({
+      provider: providerToCostKey(response.providerId),
+      model: response.model,
+      scope: "briefing",
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      cacheHit: false,
     });
     if (!response.text) {
       return {
@@ -150,6 +162,14 @@ async function tryAi(
         err instanceof Error ? `provider-throw:${err.message}` : "provider-throw",
     };
   }
+}
+
+function providerToCostKey(
+  id: AIProvider["id"],
+): "anthropic" | "openai" | "noop" | "unknown" {
+  if (id === "anthropic" || id === "openai") return id;
+  if (id === "deterministic") return "noop";
+  return "unknown";
 }
 
 // ============================================================

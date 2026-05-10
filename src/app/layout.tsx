@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
+import { CookieBanner } from "@/components/common/cookie-banner";
+
 import "./globals.css";
 
 const inter = Inter({
@@ -32,7 +34,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="nl" className={`dark ${inter.variable}`} suppressHydrationWarning>
-      <body className="min-h-screen font-sans antialiased">{children}</body>
+      <body className="min-h-screen font-sans antialiased">
+        {children}
+        <CookieBanner />
+      </body>
     </html>
   );
 }

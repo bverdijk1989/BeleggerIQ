@@ -16,6 +16,7 @@
  */
 
 import { TtlCache } from "@/lib/data/cache";
+import { recordAICost } from "@/lib/perf";
 import type { ISODateString } from "@/types/common";
 
 import type { BehavioralSignalWithState } from "@/lib/analytics/behavioral";
@@ -144,7 +145,7 @@ async function runDomainPipeline(
   let guardrailRejection: string | undefined;
 
   if (provider.id !== "deterministic") {
-    const aiResult = await tryAi(provider, input.prompt);
+    const aiResult = await tryAi(provider, input.prompt, input.domain);
     if (aiResult.ok && aiResult.draft) {
       mode = "ai";
       draft = aiResult.draft;
@@ -178,13 +179,24 @@ async function runDomainPipeline(
 async function tryAi(
   provider: AIProvider,
   prompt: PromptPayload,
+  domain: ExplainabilityDomain,
 ): Promise<GuardrailResult> {
   try {
     const response = await provider.complete({
       system: prompt.system,
       user: prompt.user,
-      temperature: 0.2,
+      // Reproduceerbaarheid (Simons-laag).
+      temperature: 0,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
+    });
+    // Cost-meter wireup (Module 16) — per-domain attributie.
+    recordAICost({
+      provider: providerToCostKey(response.providerId),
+      model: response.model,
+      scope: `explain:${domain}`,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      cacheHit: false,
     });
     if (!response.text) {
       return {
@@ -202,6 +214,14 @@ async function tryAi(
         err instanceof Error ? `provider-throw:${err.message}` : "provider-throw",
     };
   }
+}
+
+function providerToCostKey(
+  id: AIProvider["id"],
+): "anthropic" | "openai" | "noop" | "unknown" {
+  if (id === "anthropic" || id === "openai") return id;
+  if (id === "deterministic") return "noop";
+  return "unknown";
 }
 
 function deriveConfidence(

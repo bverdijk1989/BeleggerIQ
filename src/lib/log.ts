@@ -18,6 +18,8 @@
  *   secret-leak in logs zonder dat callsite per veld moet nadenken.
  */
 
+import { redactDeep } from "@/lib/security/redact";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogFields {
@@ -99,7 +101,8 @@ function redactFields(fields: LogFields): LogFields {
       out[k] = redactValue(v, 1);
     }
   }
-  return out;
+  // Defense-in-depth: scrubt PII-patronen in string-VALUES (email/IPv4/Bearer).
+  return redactDeep(out);
 }
 
 // ============================================================

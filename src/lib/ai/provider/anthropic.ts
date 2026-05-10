@@ -59,7 +59,7 @@ export class AnthropicProvider implements AIProvider {
         body: JSON.stringify({
           model: this.model,
           max_tokens: request.maxOutputTokens ?? 600,
-          temperature: request.temperature ?? 0.2,
+          temperature: request.temperature ?? 0,
           stop_sequences: request.stop,
           system: request.system,
           messages: [{ role: "user", content: request.user }],

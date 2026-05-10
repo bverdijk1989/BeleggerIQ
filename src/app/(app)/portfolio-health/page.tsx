@@ -111,6 +111,15 @@ export default async function PortfolioHealthPage() {
         description="10-component health-score met verbeteradviezen per zwakke pijler."
       />
 
+      <div
+        role="note"
+        className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-200"
+      >
+        Health-score is een modelresultaat op basis van diversificatie, kwaliteit
+        en risk-alignment — geen voorspelling van rendement en geen
+        beleggingsadvies. Aannames per component staan in de detail-cards.
+      </div>
+
       <Section
         title="Samenvatting"
         description="In één oogopslag: totaalscore, grade, en de eerstvolgende verbetering."
