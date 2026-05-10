@@ -4,6 +4,8 @@ export * from "./prompts";
 export * from "./chat";
 export * from "./research-dossier";
 export * from "./explain";
+export * from "./briefing";
+export * from "./provider";
 export {
   explainDashboardSummary,
   buildDashboardSummaryPrompt,

@@ -1,4 +1,5 @@
 export { ActionCard } from "./action-card";
+export { BriefingCard } from "./briefing-card";
 export { HealthScoreCard } from "./health-score-card";
 export { DecisionCockpitLayout } from "./decision-cockpit-layout";
 export { PrimaryActionBar } from "./primary-action-bar";

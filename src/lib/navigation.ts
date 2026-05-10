@@ -6,6 +6,7 @@ import {
   Bot,
   Briefcase,
   CalendarClock,
+  Newspaper,
   Eye,
   FileText,
   FlaskConical,
@@ -53,6 +54,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     href: "/portfolio-health" as Route,
     icon: Sparkles,
     description: "10-component portfolio health score met verbeteradviezen",
+    group: "analyse",
+  },
+  {
+    label: "Briefing",
+    href: "/briefing" as Route,
+    icon: Newspaper,
+    description: "Dagelijkse AI-briefing — bewegingen, risico's, focuspunt",
     group: "analyse",
   },
   {

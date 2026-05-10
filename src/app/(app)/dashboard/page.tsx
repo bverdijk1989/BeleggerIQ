@@ -6,6 +6,7 @@ import { Section } from "@/components/common/section";
 import {
   AiExplainPanel,
   AllocationDecisionPreview,
+  BriefingCard,
   BusinessQualityBlock,
   buildCockpitViewModel,
   DecisionCockpitLayout,
@@ -41,6 +42,10 @@ import {
 import { capForHolding } from "@/lib/analytics/policy-engine/holding-cap";
 import { explainDashboardSummary } from "@/lib/ai";
 import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
+import {
+  buildBriefingContext,
+  loadDailyBriefing,
+} from "@/lib/ai/briefing";
 import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
@@ -353,6 +358,9 @@ export default async function DashboardPage({
     policy: context.profile?.policy ?? null,
   });
 
+  // (Daily Briefing wordt onderaan gerenderd — heeft riskActions nodig
+  //  die verderop in de page-flow worden gebouwd.)
+
   // Risk actions — combineert risk-engine flags, rebalance-quantity-engine,
   // policy-engine violations en data-quality. Levert max 3 actiegerichte
   // risico-kaarten met letterlijke shares/euro's uit de quantity-engine.
@@ -413,6 +421,19 @@ export default async function DashboardPage({
     qualityReport,
     baseCurrency: view.summary.baseCurrency,
   });
+
+  // Daily Briefing (Module 2) — context-aggregator + AI-of-fallback +
+  // 12u-cache. Pure server-side; geen extra I/O.
+  const briefingContext = buildBriefingContext({
+    portfolioId: portfolio.id,
+    briefingDate: new Date().toISOString().slice(0, 10),
+    view,
+    snapshots,
+    regime,
+    dashboardActions,
+    riskActions,
+  });
+  const briefing = await loadDailyBriefing({ context: briefingContext });
 
   // Opportunity prioritizer — top 3 dashboard-kansen op basis van de
   // Opportunity Radar, met portfolio-weight + regime-aware rerank en
@@ -583,6 +604,13 @@ export default async function DashboardPage({
         }
         aiExplain={<AiExplainPanel explanation={dashboardExplanation} />}
       />
+
+      <Section
+        title="Dagelijkse briefing"
+        description="Persoonlijke analist-memo — kort, concreet, hedged taal. Lees de volledige 7-secties op /briefing."
+      >
+        <BriefingCard briefing={briefing} />
+      </Section>
 
       <Section
         title="Adviesgeschiedenis"
