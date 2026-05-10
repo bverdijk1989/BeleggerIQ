@@ -1,4 +1,5 @@
 export { ActionCard } from "./action-card";
+export { HealthScoreCard } from "./health-score-card";
 export { DecisionCockpitLayout } from "./decision-cockpit-layout";
 export { PrimaryActionBar } from "./primary-action-bar";
 export { PortfolioStatusSnapshot } from "./portfolio-status-snapshot";

@@ -49,6 +49,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     group: "analyse",
   },
   {
+    label: "Health",
+    href: "/portfolio-health" as Route,
+    icon: Sparkles,
+    description: "10-component portfolio health score met verbeteradviezen",
+    group: "analyse",
+  },
+  {
     label: "Transacties",
     href: "/transacties" as Route,
     icon: Receipt,

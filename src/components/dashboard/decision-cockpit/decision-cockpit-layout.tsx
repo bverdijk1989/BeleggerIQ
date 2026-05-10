@@ -25,6 +25,9 @@ interface Props {
   allocation: ReactNode;
   scenario: ReactNode;
   aiExplain: ReactNode;
+  /** Optionele Portfolio Health Score-kaart — naast de status-snapshot
+   *  in de above-the-fold zone. */
+  health?: ReactNode;
   /** Sticky header (PageHeader of equivalent). */
   header?: ReactNode;
   className?: string;
@@ -38,6 +41,7 @@ export function DecisionCockpitLayout({
   allocation,
   scenario,
   aiExplain,
+  health,
   header,
   className,
 }: Props) {
@@ -55,7 +59,14 @@ export function DecisionCockpitLayout({
        */}
       <section aria-label="Direct besluit" className="space-y-3">
         {primaryAction}
-        {status}
+        {health ? (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+            <div>{status}</div>
+            {health}
+          </div>
+        ) : (
+          status
+        )}
       </section>
 
       {/* Risico's links / kansen rechts — gelijke prioriteit, gelijke

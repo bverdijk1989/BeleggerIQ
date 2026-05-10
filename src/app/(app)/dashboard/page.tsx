@@ -10,6 +10,7 @@ import {
   buildCockpitViewModel,
   DecisionCockpitLayout,
   DecisionHistoryPreview,
+  HealthScoreCard,
   OpportunityPanel,
   PortfolioStatusSnapshot,
   PrimaryActionBar,
@@ -40,6 +41,7 @@ import {
 import { capForHolding } from "@/lib/analytics/policy-engine/holding-cap";
 import { explainDashboardSummary } from "@/lib/ai";
 import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
+import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { resolveUserFromServer } from "@/lib/auth";
 import { fetchRegimeInputs } from "@/lib/data/regime";
@@ -340,6 +342,17 @@ export default async function DashboardPage({
     regime,
   });
 
+  // Portfolio Health Score (Module 1) — 10-component score met
+  // verbeteradviezen. Loader hergebruikt view + regime + snapshots; geen
+  // extra I/O. Detail-pagina op /portfolio-health.
+  const healthScore = loadPortfolioHealthScore({
+    view,
+    regime,
+    snapshots,
+    profile: context.profile,
+    policy: context.profile?.policy ?? null,
+  });
+
   // Risk actions — combineert risk-engine flags, rebalance-quantity-engine,
   // policy-engine violations en data-quality. Levert max 3 actiegerichte
   // risico-kaarten met letterlijke shares/euro's uit de quantity-engine.
@@ -553,6 +566,7 @@ export default async function DashboardPage({
           />
         }
         status={<PortfolioStatusSnapshot snapshot={statusSnapshot} />}
+        health={<HealthScoreCard score={healthScore} />}
         risks={<RiskActionPanel actions={riskActions} />}
         opportunities={<OpportunityPanel opportunities={dashboardOpportunities} />}
         allocation={
