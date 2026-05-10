@@ -198,6 +198,18 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Community Intelligence (M13)
+  // ============================================================
+  {
+    key: "community.benchmark",
+    label: "Community benchmark",
+    description:
+      "Vergelijk je portefeuille anoniem met je cohort: asset-mix, risicoprofiel, dividend-strategie, sectoren en rendement. Privacy-first: opt-in per scope.",
+    availableIn: ALL_PAID,
+    category: "analytics",
+  },
+
+  // ============================================================
   //  Advisor / Enterprise — voorbereid
   // ============================================================
   {

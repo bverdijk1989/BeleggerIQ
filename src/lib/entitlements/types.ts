@@ -45,6 +45,8 @@ export type FeatureKey =
   | "scenario.analysis"
   // Premium alerts (notifications)
   | "alerts.premium"
+  // Community Intelligence (M13)
+  | "community.benchmark"
   // Advisor / Enterprise (toekomst)
   | "advisor.multi_client"
   | "advisor.export_reports"
