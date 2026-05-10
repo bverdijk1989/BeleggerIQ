@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -p 2222 root@195.201.149.219 \"sudo -u beleggeriq bash -c 'cd /var/www/beleggeriq && ls releases/ | tail -3 && echo --- && cd /var/www/beleggeriq && git -C source fetch origin main 2>&1 | tail -3 || \\(echo \\\\\"no source-clone, clean clone needed\\\\\"; ls /var/www/beleggeriq/\\)'\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"sudo -u beleggeriq bash -c 'cd /var/www/beleggeriq/releases/20260510-204824 && npx prisma migrate status 2>&1 | tail -40'\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"sudo -u beleggeriq bash -c 'cd /var/www/beleggeriq/releases/20260510-204824 && npx prisma migrate deploy 2>&1' | tail -40\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"sudo -u beleggeriq psql -d beleggeriq -At -c \\\\\"SELECT 'Portfolio: ' || count\\(*\\) FROM \\\\\\\\\\\\\"Portfolio\\\\\\\\\\\\\"; SELECT 'Holding: ' || count\\(*\\) FROM \\\\\\\\\\\\\"Holding\\\\\\\\\\\\\"; SELECT 'User: ' || count\\(*\\) FROM \\\\\\\\\\\\\"User\\\\\\\\\\\\\"; SELECT 'AuditEntry: ' || count\\(*\\) FROM \\\\\\\\\\\\\"AuditEntry\\\\\\\\\\\\\"; SELECT 'Alert: ' || count\\(*\\) FROM \\\\\\\\\\\\\"Alert\\\\\\\\\\\\\";\\\\\"\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"sudo -u beleggeriq bash -c 'cd /var/www/beleggeriq/releases/20260510-204824 && npx prisma generate 2>&1 | tail -3 && npm run build 2>&1 | tail -15'\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"set -e; sudo -u beleggeriq ln -sfn /var/www/beleggeriq/releases/20260510-204824 /var/www/beleggeriq/current && sudo systemctl restart beleggeriq && sleep 3 && systemctl is-active beleggeriq && sudo -u beleggeriq readlink /var/www/beleggeriq/current && echo '---' && curl -s -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\\\\n' http://localhost:3000/api/health\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"ss -tlnp | grep -E ':3000|node' | head -5; echo '---'; sudo journalctl -u beleggeriq --since '2 minutes ago' --no-pager 2>&1 | tail -20\")",
+      "Bash(ssh -p 2222 root@195.201.149.219 \"curl -s -w 'HTTP %{http_code} \\(%{time_total}s\\)\\\\n' http://localhost:3003/api/health | tail -3; echo '---'; curl -s -o /dev/null -w 'HTTPS %{http_code}\\\\n' https://beleggeriq.bart-verdijk.com/api/health 2>&1; curl -s -k -o /dev/null -w 'IP-direct %{http_code}\\\\n' https://195.201.149.219/api/health -H 'Host: localhost' 2>&1\")"
+    ]
+  }
+}

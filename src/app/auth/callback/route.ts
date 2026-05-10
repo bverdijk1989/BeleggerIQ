@@ -54,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return redirectToLogin(request, "session-config");
   }
 
-  const dashboardUrl = new URL("/dashboard", request.url);
+  const dashboardUrl = buildAbsoluteUrl(request, "/dashboard");
   const response = NextResponse.redirect(dashboardUrl, { status: 303 });
   response.cookies.set({
     name: SESSION_COOKIE,
@@ -76,7 +76,35 @@ function redirectToLogin(
   request: NextRequest,
   reason: string,
 ): NextResponse {
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = buildAbsoluteUrl(request, "/login");
   loginUrl.searchParams.set("error", reason);
   return NextResponse.redirect(loginUrl, { status: 303 });
+}
+
+/**
+ * Proxy-aware absolute-URL bouwer. Achter nginx (of een vergelijkbare
+ * reverse-proxy) is `request.url` de interne `http://localhost:3003/...`-
+ * URL — niet bruikbaar voor een 303 Location-header die de browser moet
+ * volgen. We construeren de juiste origin uit:
+ *
+ *   1. `X-Forwarded-Proto` + `X-Forwarded-Host` (door nginx gezet)
+ *   2. of `Host`-header + protocol uit `X-Forwarded-Proto`
+ *   3. fallback op `NEXT_PUBLIC_APP_URL`
+ *   4. laatste redmiddel: `request.url` (bv. lokale dev zonder proxy)
+ */
+function buildAbsoluteUrl(request: NextRequest, path: string): URL {
+  const forwardedProto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ??
+    request.headers.get("host");
+  if (forwardedHost) {
+    const proto = forwardedProto ?? "https";
+    return new URL(path, `${proto}://${forwardedHost}`);
+  }
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) {
+    return new URL(path, configured);
+  }
+  return new URL(path, request.url);
 }
