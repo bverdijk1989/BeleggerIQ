@@ -2,6 +2,7 @@ import { Bell, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n";
+import type { UxMode } from "@/lib/ux-mode";
 
 import { LocaleSwitcher } from "./locale-switcher";
 import { MobileNav } from "./mobile-nav";
@@ -9,12 +10,13 @@ import { PortfolioSwitcher } from "./portfolio-switcher";
 
 interface TopBarProps {
   locale?: Locale;
+  uxMode?: UxMode | null;
 }
 
-export function TopBar({ locale = "nl" }: TopBarProps) {
+export function TopBar({ locale = "nl", uxMode }: TopBarProps) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur md:px-8">
-      <MobileNav />
+      <MobileNav uxMode={uxMode} />
 
       <div className="hidden flex-1 items-center gap-2 rounded-md border border-border/60 bg-surface px-3 py-1.5 text-sm text-muted-foreground md:flex md:max-w-md">
         <Search className="h-4 w-4" />

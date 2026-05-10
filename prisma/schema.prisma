@@ -78,6 +78,11 @@ model UserProfile {
   /// ISO-timestamp wanneer de gebruiker de onboarding-flow heeft afgerond.
   /// NULL = nog niet onboarded → app stuurt naar /onboarding.
   onboardedAt   DateTime?
+  /// UX-mode (M28): BEGINNER toont alleen doelen/health/risico met
+  /// educatieve microcopy; FOCUS toont alleen kernsignalen + briefing;
+  /// EXPERT toont alle analytics, factor-breakdowns en macro-data.
+  /// Default FOCUS — minimaal-maar-bruikbaar voor alle gebruikers.
+  uxMode        UxMode    @default(FOCUS)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -851,6 +856,12 @@ enum GoalType {
   EDUCATION
   EMERGENCY_FUND
   CUSTOM
+}
+
+enum UxMode {
+  BEGINNER
+  FOCUS
+  EXPERT
 }
 
 enum InvestmentObjective {

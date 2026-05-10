@@ -228,6 +228,7 @@ function mapProfile(row: ProfileRow): UserProfile {
       policyJson && typeof policyJson === "object" && !Array.isArray(policyJson)
         ? (policyJson as PolicySettings)
         : undefined,
+    uxMode: row.uxMode as UserProfile["uxMode"],
   };
 }
 

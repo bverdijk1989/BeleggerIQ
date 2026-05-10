@@ -4,12 +4,26 @@ import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
 import { Button } from "@/components/ui/button";
+import { UxModeSelector } from "@/components/ux-mode/ux-mode-selector";
+import { resolveUserFromServer } from "@/lib/auth";
+import { portfolioRepository } from "@/lib/data";
+import { DEFAULT_UX_MODE } from "@/lib/ux-mode";
 
 export const metadata = {
   title: "Profiel",
 };
 
-export default function ProfielPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ProfielPage() {
+  const auth = await resolveUserFromServer();
+  const ctx = auth.ok
+    ? await portfolioRepository
+        .findUserContextByEmail(auth.user.email)
+        .catch(() => null)
+    : null;
+  const currentMode = ctx?.profile?.uxMode ?? DEFAULT_UX_MODE;
+
   return (
     <>
       <PageHeader
@@ -18,6 +32,19 @@ export default function ProfielPage() {
         description="Je horizon, risicobereidheid, doelen en voorkeuren sturen alle analyses en beslissingen aan."
         actions={<Button size="sm">Profiel bewerken</Button>}
       />
+
+      <Section
+        title="UX-modus"
+        description="Hoe wil je dat de app eruitziet? Beginner is rustig en uitlegbaar; Focus toont alleen de essentie; Expert zet alle analytics aan."
+      >
+        {auth.ok ? (
+          <UxModeSelector current={currentMode} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Log in om je UX-modus aan te passen.
+          </p>
+        )}
+      </Section>
 
       <Section title="Overzicht" description="Deze gegevens bepalen hoe BeleggerIQ signalen voor jou weegt.">
         <EmptyState

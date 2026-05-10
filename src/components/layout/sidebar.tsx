@@ -6,16 +6,31 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from "@/lib/navigation";
 import { Logo } from "@/components/brand/logo";
+import {
+  DEFAULT_UX_MODE,
+  isRouteVisibleInMode,
+  type NavRouteKey,
+  type UxMode,
+} from "@/lib/ux-mode";
 
 interface SidebarProps {
   className?: string;
   onNavigate?: () => void;
+  /** Actieve UX-mode — bepaalt welke nav-items zichtbaar zijn. */
+  uxMode?: UxMode | null;
 }
 
-export function Sidebar({ className, onNavigate }: SidebarProps) {
+export function Sidebar({ className, onNavigate, uxMode }: SidebarProps) {
   const pathname = usePathname();
+  const mode = uxMode ?? DEFAULT_UX_MODE;
 
-  const grouped = NAV_ITEMS.reduce<Record<NavItem["group"], NavItem[]>>(
+  // Filter NAV_ITEMS op de actieve modus. Direct-URL toegang blijft werken
+  // — dit is een densiteit-keuze, geen permission-laag.
+  const visible = NAV_ITEMS.filter((item) =>
+    isRouteVisibleInMode(item.href as NavRouteKey, mode),
+  );
+
+  const grouped = visible.reduce<Record<NavItem["group"], NavItem[]>>(
     (acc, item) => {
       const bucket = acc[item.group] ?? [];
       bucket.push(item);

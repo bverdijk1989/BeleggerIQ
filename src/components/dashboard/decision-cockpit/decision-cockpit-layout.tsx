@@ -20,11 +20,16 @@ import { cn } from "@/lib/utils";
 interface Props {
   primaryAction: ReactNode;
   status: ReactNode;
-  risks: ReactNode;
-  opportunities: ReactNode;
-  allocation: ReactNode;
-  scenario: ReactNode;
-  aiExplain: ReactNode;
+  /** Risico-paneel. Optioneel sinds M28 (BEGINNER-mode verbergt risk-paneel). */
+  risks?: ReactNode;
+  /** Kansen-paneel. Optioneel sinds M28. */
+  opportunities?: ReactNode;
+  /** Allocatie-impact-preview. Optioneel — alleen EXPERT-mode toont 'em. */
+  allocation?: ReactNode;
+  /** Scenario-snapshot. Optioneel — alleen EXPERT-mode toont 'em. */
+  scenario?: ReactNode;
+  /** AI explain-panel. Optioneel — alleen EXPERT-mode. */
+  aiExplain?: ReactNode;
   /** Optionele Portfolio Health Score-kaart — naast de status-snapshot
    *  in de above-the-fold zone. */
   health?: ReactNode;
@@ -71,33 +76,39 @@ export function DecisionCockpitLayout({
 
       {/* Risico's links / kansen rechts — gelijke prioriteit, gelijke
        *  visuele weight. Op mobile stapelt de stack. */}
-      <section
-        aria-label="Risico's en kansen"
-        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
-      >
-        {risks}
-        {opportunities}
-      </section>
+      {(risks || opportunities) && (
+        <section
+          aria-label="Risico's en kansen"
+          className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+        >
+          {risks}
+          {opportunities}
+        </section>
+      )}
 
       {/* Allocatie-impact + scenario-snapshot — secundair, dus iets
        *  smaller scenario-kolom (22rem). */}
-      <section
-        aria-label="Allocatie- en scenario-preview"
-        className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]"
-      >
-        {allocation}
-        {scenario}
-      </section>
+      {(allocation || scenario) && (
+        <section
+          aria-label="Allocatie- en scenario-preview"
+          className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]"
+        >
+          {allocation}
+          {scenario}
+        </section>
+      )}
 
       {/* AI explain — onderaan met visuele scheiding van de besluit-rij.
        *  Subtiele border-top zodat de gebruiker ziet dat dit een aparte
        *  uitlegzone is. */}
-      <section
-        aria-label="AI-uitleg"
-        className="border-t border-border/40 pt-4"
-      >
-        {aiExplain}
-      </section>
+      {aiExplain && (
+        <section
+          aria-label="AI-uitleg"
+          className="border-t border-border/40 pt-4"
+        >
+          {aiExplain}
+        </section>
+      )}
     </div>
   );
 }

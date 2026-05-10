@@ -29,6 +29,16 @@ export type RiskTolerance =
   | "GROWTH"
   | "AGGRESSIVE";
 
+/**
+ * UX-modus die de UI-densiteit stuurt:
+ *  - BEGINNER  — eenvoudige uitleg, weinig grafieken, focus op doelen + score + risico
+ *  - FOCUS     — alleen kernsignalen, dagelijkse briefing, health, aandachtspunten
+ *  - EXPERT    — volledige analytics, factor-breakdowns, backtesting, macro-data
+ *
+ * Default = FOCUS (minimaal-maar-bruikbaar voor alle gebruikers).
+ */
+export type UxMode = "BEGINNER" | "FOCUS" | "EXPERT";
+
 export type EsgStance = "never" | "avoid" | "neutral" | "prefer" | "only";
 
 /**
@@ -130,4 +140,6 @@ export interface UserProfile {
   preferences: Record<string, unknown>;
   /** Harde beleggingsconstraints en voorkeuren. */
   policy?: PolicySettings;
+  /** UX-modus die UI-densiteit + zichtbare secties stuurt. Default `FOCUS`. */
+  uxMode?: UxMode;
 }

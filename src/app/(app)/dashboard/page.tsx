@@ -52,6 +52,11 @@ import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { loadMacroRegimeReport } from "@/lib/analytics/macro-regime";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
 import { ConfidenceSummaryCard } from "@/components/signal-fusion/confidence-summary-card";
+import {
+  DEFAULT_UX_MODE,
+  getDashboardVisibility,
+  getMicrocopy,
+} from "@/lib/ux-mode";
 import { CoachCard } from "@/components/behavioral/coach-card";
 import { GoalsSummaryCard } from "@/components/goals/goals-summary-card";
 import { MacroRegimeCard } from "@/components/macro-regime/regime-card";
@@ -155,6 +160,11 @@ export default async function DashboardPage({
     monthlyContribution: null,
   };
   const portfolio = selection.portfolio;
+
+  // UX-mode (M28) bepaalt welke secties en widgets we renderen.
+  // BEGINNER → kerncomponenten + microcopy; FOCUS → essentie; EXPERT → alles.
+  const uxMode = context.profile?.uxMode ?? DEFAULT_UX_MODE;
+  const ui = getDashboardVisibility(uxMode);
 
   // Parallel fetches: portfolio view + regime + historiek.
   const [view, regimeFetch, snapshots] = await Promise.all([
@@ -622,70 +632,130 @@ export default async function DashboardPage({
             baseCurrency={cockpit.baseCurrency}
           />
         }
-        status={<PortfolioStatusSnapshot snapshot={statusSnapshot} />}
-        health={<HealthScoreCard score={healthScore} />}
-        risks={<RiskActionPanel actions={riskActions} />}
-        opportunities={<OpportunityPanel opportunities={dashboardOpportunities} />}
+        status={
+          ui.showStatusSnapshot ? (
+            <PortfolioStatusSnapshot snapshot={statusSnapshot} />
+          ) : null
+        }
+        health={
+          ui.showHealthScoreCard ? <HealthScoreCard score={healthScore} /> : undefined
+        }
+        risks={
+          ui.showRiskActions ? <RiskActionPanel actions={riskActions} /> : undefined
+        }
+        opportunities={
+          ui.showOpportunities ? (
+            <OpportunityPanel opportunities={dashboardOpportunities} />
+          ) : undefined
+        }
         allocation={
-          <AllocationDecisionPreview
-            simulation={actionImpact}
-            baseCurrency={cockpit.baseCurrency}
-          />
+          ui.showAllocationPreview ? (
+            <AllocationDecisionPreview
+              simulation={actionImpact}
+              baseCurrency={cockpit.baseCurrency}
+            />
+          ) : undefined
         }
         scenario={
-          <ScenarioSnapshot
-            snapshot={scenarioSnapshot}
-            baseCurrency={cockpit.baseCurrency}
-          />
+          ui.showScenarioSnapshot ? (
+            <ScenarioSnapshot
+              snapshot={scenarioSnapshot}
+              baseCurrency={cockpit.baseCurrency}
+            />
+          ) : undefined
         }
-        aiExplain={<AiExplainPanel explanation={dashboardExplanation} />}
+        aiExplain={
+          ui.showAiExplain ? (
+            <AiExplainPanel explanation={dashboardExplanation} />
+          ) : undefined
+        }
       />
 
-      <Section
-        title="Dagelijkse briefing"
-        description="Persoonlijke analist-memo — kort, concreet, hedged taal. Lees de volledige 7-secties op /briefing."
-      >
-        <BriefingCard briefing={briefing} />
-      </Section>
+      {ui.showEducationalMicrocopy && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-4 text-xs text-foreground">
+          <p className="font-semibold uppercase tracking-[0.18em] text-primary">
+            Beginner-modus
+          </p>
+          <p className="mt-1 leading-relaxed text-muted-foreground">
+            We tonen alleen de kern: doelen, gezondheidsscore en gedrags-coach.
+            Wil je meer detail? Schakel in <a className="text-primary hover:underline" href="/profiel">/profiel</a> over naar Focus of Expert.
+          </p>
+        </div>
+      )}
 
-      <Section
-        title="Behavioral coach"
-        description="Coachende reflecties op je gedrag — concentratie, handelsfrequentie, panic/FOMO, drift. Geen advies, wel vragen."
-      >
-        <CoachCard report={coachResult.report} signals={coachResult.signals} />
-      </Section>
+      {ui.showBriefing && (
+        <Section
+          title="Dagelijkse briefing"
+          description={
+            getMicrocopy("briefing", uxMode) ||
+            "Persoonlijke analist-memo — kort, concreet, hedged taal. Lees de volledige 7-secties op /briefing."
+          }
+        >
+          <BriefingCard briefing={briefing} />
+        </Section>
+      )}
 
-      <Section
-        title="Financiële doelen"
-        description="Wat betekent je portefeuille voor jouw leven? Pensioen, FIRE, huis, studie — koppel ze aan je strategie."
-      >
-        <GoalsSummaryCard combined={goalsResult.combined} />
-      </Section>
+      {ui.showBehavioralCoach && (
+        <Section
+          title="Behavioral coach"
+          description={
+            getMicrocopy("behavioral_coach", uxMode) ||
+            "Coachende reflecties op je gedrag — concentratie, handelsfrequentie, panic/FOMO, drift. Geen advies, wel vragen."
+          }
+        >
+          <CoachCard report={coachResult.report} signals={coachResult.signals} />
+        </Section>
+      )}
 
-      <Section
-        title="Macroregime"
-        description="Waar staat de wereldeconomie — en wat betekent dat voor je portefeuille?"
-      >
-        <MacroRegimeCard report={macroReport} />
-      </Section>
+      {ui.showGoals && (
+        <Section
+          title="Financiële doelen"
+          description={
+            getMicrocopy("goals", uxMode) ||
+            "Wat betekent je portefeuille voor jouw leven? Pensioen, FIRE, huis, studie — koppel ze aan je strategie."
+          }
+        >
+          <GoalsSummaryCard combined={goalsResult.combined} />
+        </Section>
+      )}
 
-      <Section
-        title="Investment Confidence"
-        description="Per positie een 0..100 score over 10 transparante signaalbronnen — geen black box."
-      >
-        <ConfidenceSummaryCard rows={confidenceRows} />
-      </Section>
+      {ui.showMacroRegime && (
+        <Section
+          title="Macroregime"
+          description={
+            getMicrocopy("macro", uxMode) ||
+            "Waar staat de wereldeconomie — en wat betekent dat voor je portefeuille?"
+          }
+        >
+          <MacroRegimeCard report={macroReport} />
+        </Section>
+      )}
 
-      <Section
-        title="Adviesgeschiedenis"
-        description="Welke adviezen heeft de cockpit eerder gegeven en wat heb je ermee gedaan? Markeer als 'Gedaan' of 'Genegeerd' zodra je de actie afhandelt."
-      >
-        <DecisionHistoryPreview
-          summary={decisionHistorySummary}
-          baseCurrency={cockpit.baseCurrency}
-        />
-      </Section>
+      {ui.showConfidenceSummary && (
+        <Section
+          title="Investment Confidence"
+          description={
+            getMicrocopy("confidence", uxMode) ||
+            "Per positie een 0..100 score over 10 transparante signaalbronnen — geen black box."
+          }
+        >
+          <ConfidenceSummaryCard rows={confidenceRows} />
+        </Section>
+      )}
 
+      {ui.showDecisionHistory && (
+        <Section
+          title="Adviesgeschiedenis"
+          description="Welke adviezen heeft de cockpit eerder gegeven en wat heb je ermee gedaan? Markeer als 'Gedaan' of 'Genegeerd' zodra je de actie afhandelt."
+        >
+          <DecisionHistoryPreview
+            summary={decisionHistorySummary}
+            baseCurrency={cockpit.baseCurrency}
+          />
+        </Section>
+      )}
+
+      {ui.showDeepDive && (
       <Section
         title="Verdieping"
         description="Achtergrond bij je cockpit — marktregime, vergelijking met de index, bedrijfskwaliteit en netto rendement. Niet nodig voor je beslissing van vandaag."
@@ -714,8 +784,9 @@ export default async function DashboardPage({
           )}
         </div>
       </Section>
+      )}
 
-      {businessQualitySummary && (
+      {ui.showBusinessQuality && businessQualitySummary && (
         <Section
           title="Bedrijfskwaliteit"
           description="Elke positie als bedrijf beoordeeld — sterke bedrijven, cyclische blootstellingen en 10-jaars-houders in één overzicht."
@@ -724,6 +795,7 @@ export default async function DashboardPage({
         </Section>
       )}
 
+      {ui.showNetReturn && (
       <Section
         title="Netto rendement"
         description="Wat houd je over na belasting? Schatting voor box 3 (inclusief spaargeld + schulden), NL dividendbelasting en buitenlandse bronbelasting. Geen fiscaal advies."
@@ -739,17 +811,20 @@ export default async function DashboardPage({
           }
         />
       </Section>
+      )}
 
-      <Section
-        title="Historiek"
-        description="Hoe ontwikkelt je portefeuille zich? Druk op 'Snapshot nu' of laat de geplande job dit dagelijks doen."
-        actions={<SnapshotButton portfolioId={portfolio.id} />}
-      >
-        <HistoryCharts
-          snapshots={snapshots}
-          baseCurrency={view.summary.baseCurrency}
-        />
-      </Section>
+      {ui.showHistoryCharts && (
+        <Section
+          title="Historiek"
+          description="Hoe ontwikkelt je portefeuille zich? Druk op 'Snapshot nu' of laat de geplande job dit dagelijks doen."
+          actions={<SnapshotButton portfolioId={portfolio.id} />}
+        >
+          <HistoryCharts
+            snapshots={snapshots}
+            baseCurrency={view.summary.baseCurrency}
+          />
+        </Section>
+      )}
     </>
   );
 }
