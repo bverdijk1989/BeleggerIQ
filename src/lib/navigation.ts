@@ -17,6 +17,7 @@ import {
   Receipt,
   ShieldAlert,
   Sparkles,
+  Star,
   Telescope,
   TimerReset,
   UserCog,
@@ -156,6 +157,13 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
     icon: Bot,
     description: "AI-assistent met explainability",
     group: "onderzoek",
+  },
+  {
+    label: "Pricing",
+    href: "/pricing" as Route,
+    icon: Star,
+    description: "Tiers, features en upgrade-mogelijkheden",
+    group: "account",
   },
   {
     label: "Profiel",

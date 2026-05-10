@@ -39,6 +39,19 @@ export type RiskTolerance =
  */
 export type UxMode = "BEGINNER" | "FOCUS" | "EXPERT";
 
+/**
+ * Billing-tier — bepaalt welke features (modules + analytics-engines)
+ * de gebruiker mag gebruiken.
+ *
+ *  - FREE      — kennismaking; beperkte tracking + beperkte health + beperkte AI-briefing
+ *  - PRO       — volledige Health Score, AI Briefing, Behavioral Coach, basis Macro
+ *  - ELITE     — Signal Fusion, AI Explainability, Scenario-analyse, premium alerts, full Macro
+ *  - ADVISOR   — voorbereid: multi-client, export-reports, white-label
+ *
+ * Default = FREE.
+ */
+export type BillingTier = "FREE" | "PRO" | "ELITE" | "ADVISOR";
+
 export type EsgStance = "never" | "avoid" | "neutral" | "prefer" | "only";
 
 /**
@@ -142,4 +155,6 @@ export interface UserProfile {
   policy?: PolicySettings;
   /** UX-modus die UI-densiteit + zichtbare secties stuurt. Default `FOCUS`. */
   uxMode?: UxMode;
+  /** Billing-tier — bron-van-waarheid voor entitlement-checks. Default `FREE`. */
+  billingTier?: BillingTier;
 }

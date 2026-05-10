@@ -87,7 +87,8 @@ export type NavRouteKey =
   | "/backtest"
   | "/chat"
   | "/profiel"
-  | "/methodologie";
+  | "/methodologie"
+  | "/pricing";
 
 const ALL_ROUTES: ReadonlyArray<NavRouteKey> = [
   "/dashboard",
@@ -110,9 +111,10 @@ const ALL_ROUTES: ReadonlyArray<NavRouteKey> = [
   "/chat",
   "/profiel",
   "/methodologie",
+  "/pricing",
 ];
 
-/** Routes die zichtbaar zijn in BEGINNER — alleen kern-secties. */
+/** Routes die zichtbaar zijn in BEGINNER — alleen kern-secties + pricing. */
 const BEGINNER_ROUTES: ReadonlyArray<NavRouteKey> = [
   "/dashboard",
   "/portfolio",
@@ -121,6 +123,7 @@ const BEGINNER_ROUTES: ReadonlyArray<NavRouteKey> = [
   "/coach",
   "/profiel",
   "/methodologie",
+  "/pricing",
 ];
 
 /** Routes in FOCUS — alle BEGINNER-routes + actie-relevante. */
@@ -137,6 +140,7 @@ const FOCUS_ROUTES: ReadonlyArray<NavRouteKey> = [
   "/transacties",
   "/profiel",
   "/methodologie",
+  "/pricing",
 ];
 
 /** Routes in EXPERT — alles zichtbaar. */

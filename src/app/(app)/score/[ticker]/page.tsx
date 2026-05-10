@@ -3,6 +3,7 @@ import { ShieldAlert, Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
+import { PaywallCard } from "@/components/entitlements/paywall-card";
 import { ExplanationPanel } from "@/components/explainability/explanation-panel";
 import { ConfidenceScorecard } from "@/components/signal-fusion/confidence-scorecard";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,11 @@ import { buildPortfolioView } from "@/lib/analytics";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import {
+  canUseFeature,
+  getFeature,
+  resolveCurrentTier,
+} from "@/lib/entitlements";
 
 interface Props {
   params: Promise<{ ticker: string }>;
@@ -36,6 +42,43 @@ export default async function ConfidenceDetailPage({ params }: Props) {
   const { ticker } = await params;
   const decoded = decodeURIComponent(ticker).toUpperCase();
 
+  // Entitlement-check (M29): Confidence Score is een ELITE-feature.
+  const tierResult = await resolveCurrentTier(auth.user.email);
+  const fusionEntitlement = canUseFeature(
+    tierResult.tier,
+    "signal_fusion.confidence_score",
+    { overrideActive: tierResult.overrideActive },
+  );
+  const explainEntitlement = canUseFeature(
+    tierResult.tier,
+    "ai.explainability",
+    { overrideActive: tierResult.overrideActive },
+  );
+
+  if (!fusionEntitlement.allowed) {
+    const feature = getFeature("signal_fusion.confidence_score")!;
+    return (
+      <>
+        <PageHeader
+          eyebrow={decoded}
+          title={`Confidence · ${decoded}`}
+          description="Per instrument een 0–100 score over 10 transparante signaalbronnen."
+        />
+        <Section
+          title="Beschikbaar in Elite"
+          description="De Investment Confidence Score combineert kwaliteit, waardering, momentum, macro-fit en portfolio-fit tot één getal."
+        >
+          <PaywallCard
+            featureLabel={feature.label}
+            description={feature.description}
+            entitlement={fusionEntitlement}
+            bonusCopy="Niet alleen de score: je krijgt ook de volledige breakdown per signaal — ROIC, P/E, momentum, regime-impact — met source-tracing."
+          />
+        </Section>
+      </>
+    );
+  }
+
   const portfolio = await portfolioRepository
     .findPrimaryByEmail(auth.user.email)
     .catch(() => null);
@@ -52,7 +95,9 @@ export default async function ConfidenceDetailPage({ params }: Props) {
     (v) => v.holding.ticker.toUpperCase() === decoded,
   );
 
-  const explanation = await explainConfidence(result);
+  const explanation = explainEntitlement.allowed
+    ? await explainConfidence(result)
+    : null;
 
   return (
     <>
@@ -71,7 +116,16 @@ export default async function ConfidenceDetailPage({ params }: Props) {
         title="Uitleg"
         description="Wat betekent deze score in spreektaal — en wat zijn mogelijke acties?"
       >
-        <ExplanationPanel explanation={explanation} />
+        {explanation ? (
+          <ExplanationPanel explanation={explanation} />
+        ) : (
+          <PaywallCard
+            featureLabel={getFeature("ai.explainability")!.label}
+            description={getFeature("ai.explainability")!.description}
+            entitlement={explainEntitlement}
+            bonusCopy="Krijg een gestructureerde uitleg met conclusie, positieven, risico's en mogelijke acties — met hallucination-guardrails."
+          />
+        )}
       </Section>
 
       <Section

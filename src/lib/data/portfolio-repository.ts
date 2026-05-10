@@ -229,6 +229,7 @@ function mapProfile(row: ProfileRow): UserProfile {
         ? (policyJson as PolicySettings)
         : undefined,
     uxMode: row.uxMode as UserProfile["uxMode"],
+    billingTier: row.billingTier as UserProfile["billingTier"],
   };
 }
 

@@ -3,6 +3,7 @@ import { Globe, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
+import { PaywallCard } from "@/components/entitlements/paywall-card";
 import { IndicatorRow } from "@/components/macro-regime/indicator-row";
 import { Badge } from "@/components/ui/badge";
 import { buildPortfolioView } from "@/lib/analytics";
@@ -14,6 +15,11 @@ import {
 } from "@/lib/analytics/macro-regime";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import {
+  canUseFeature,
+  getFeature,
+  resolveCurrentTier,
+} from "@/lib/entitlements";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
@@ -58,6 +64,43 @@ export default async function MacroPage() {
       })
     : null;
 
+  // Entitlement-check (M29). Basis macro = PRO+, full macro = ELITE+.
+  const tierResult = await resolveCurrentTier(auth.user.email);
+  const basicEntitlement = canUseFeature(
+    tierResult.tier,
+    "macro.basic",
+    { overrideActive: tierResult.overrideActive },
+  );
+  const fullEntitlement = canUseFeature(
+    tierResult.tier,
+    "macro.full",
+    { overrideActive: tierResult.overrideActive },
+  );
+
+  if (!basicEntitlement.allowed) {
+    const feature = getFeature("macro.basic")!;
+    return (
+      <>
+        <PageHeader
+          eyebrow="Markt"
+          title="Macroregime"
+          description="Macro-regime classificatie + asset-class impact op je portefeuille."
+        />
+        <Section
+          title="Beschikbaar in Pro"
+          description="Macro-regime helpt je begrijpen waarom bepaalde asset-classes nu rugwind of tegenwind hebben."
+        >
+          <PaywallCard
+            featureLabel={feature.label}
+            description={feature.description}
+            entitlement={basicEntitlement}
+            bonusCopy="Vraag de Daily Briefing-AI om elke ochtend een korte regime-update."
+          />
+        </Section>
+      </>
+    );
+  }
+
   const report = await loadMacroRegimeReport({ view });
   const { classification, assetMapping, portfolioImpact } = report;
 
@@ -100,6 +143,21 @@ export default async function MacroPage() {
         </div>
       </Section>
 
+      {!fullEntitlement.allowed && (
+        <Section
+          title="Asset-class impact + Portfolio-fit"
+          description="Volledige macro-laag: 10 asset-classes met regime-impact + jouw portfolio-fit. Beschikbaar in Elite."
+        >
+          <PaywallCard
+            featureLabel={getFeature("macro.full")!.label}
+            description={getFeature("macro.full")!.description}
+            entitlement={fullEntitlement}
+            bonusCopy="Zie per asset-class welke historisch rugwind of tegenwind krijgt in dit regime, en hoe ver je portefeuille van een regime-baseline ligt."
+          />
+        </Section>
+      )}
+
+      {fullEntitlement.allowed && (
       <Section
         title="Asset-class impact"
         description="Welke beleggingscategorieën krijgen historisch tail- of headwind in dit regime. Geen koop-/verkoopadvies — een ‘wat-werkt-historisch’-tabel."
@@ -131,8 +189,9 @@ export default async function MacroPage() {
           ))}
         </div>
       </Section>
+      )}
 
-      {portfolioImpact && (
+      {fullEntitlement.allowed && portfolioImpact && (
         <Section
           title="Impact op je portefeuille"
           description={`Alignment-score ${portfolioImpact.alignmentScore}/100. ${portfolioImpact.summary}`}

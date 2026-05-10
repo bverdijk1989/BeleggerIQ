@@ -43,6 +43,7 @@ model User {
   auditEntries            AuditEntry[]
   behavioralWarningStates BehavioralWarningState[]
   financialGoals          FinancialGoal[]
+  subscriptions           Subscription[]
 
   @@index([email])
 }
@@ -83,6 +84,10 @@ model UserProfile {
   /// EXPERT toont alle analytics, factor-breakdowns en macro-data.
   /// Default FOCUS — minimaal-maar-bruikbaar voor alle gebruikers.
   uxMode        UxMode    @default(FOCUS)
+  /// Billing-tier (M29). Gedenormaliseerd voor snelle entitlement-lookup;
+  /// `Subscription` is de bron-van-waarheid bij echte billing-integratie
+  /// (Stripe/Mollie). Webhook-job sync't deze kolom. Default FREE.
+  billingTier   BillingTier @default(FREE)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -829,6 +834,48 @@ model FinancialGoal {
 }
 
 // ============================================================
+//  BILLING — Subscription bron-van-waarheid (Stripe/Mollie-ready)
+// ============================================================
+
+/// Subscription per user. **Bron van waarheid** voor billing-state;
+/// `UserProfile.billingTier` is een gedenormaliseerd cache.
+///
+/// **Externe integratie**: `externalId` houdt de Stripe/Mollie subscription-id.
+/// Een webhook-handler (toekomst) updatet `status` + `currentPeriodEnd` +
+/// sync't `UserProfile.billingTier`.
+///
+/// **Statussen** (Stripe-equivalent):
+///   - TRIALING       — trial-periode actief
+///   - ACTIVE         — betaald, in periode
+///   - PAST_DUE       — betaling mislukt, grace-periode
+///   - CANCELED       — opgezegd, mogelijk nog actief tot period-end
+///   - EXPIRED        — periode afgelopen, geen toegang meer
+///
+/// Eén user kan meerdere historische subscription-rijen hebben (audit);
+/// alleen de meest recente met status ACTIVE/TRIALING bepaalt de tier.
+model Subscription {
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier        BillingTier
+  status      SubscriptionStatus  @default(ACTIVE)
+  /// Externe subscription-id (Stripe/Mollie). Null bij interne testaccounts.
+  externalId  String?
+  /// Periode-startdatum (alleen geldig bij ACTIVE/PAST_DUE/CANCELED).
+  currentPeriodStart DateTime?
+  /// Periode-einddatum — bepaalt wanneer toegang vervalt na cancel.
+  currentPeriodEnd   DateTime?
+  /// Trial-eind, alleen relevant bij status=TRIALING.
+  trialEndsAt        DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([userId, status])
+  @@index([currentPeriodEnd])
+  @@index([externalId])
+}
+
+// ============================================================
 //  ENUMS
 // ============================================================
 
@@ -862,6 +909,21 @@ enum UxMode {
   BEGINNER
   FOCUS
   EXPERT
+}
+
+enum BillingTier {
+  FREE
+  PRO
+  ELITE
+  ADVISOR
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
 }
 
 enum InvestmentObjective {
