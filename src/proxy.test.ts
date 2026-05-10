@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 import { resetRateLimitStoreForTest } from "@/lib/ratelimit";
 
-import { middleware } from "./middleware";
+import { middleware } from "./proxy";
 
 beforeEach(() => {
   vi.spyOn(console, "info").mockImplementation(() => {});

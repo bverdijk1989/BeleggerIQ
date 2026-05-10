@@ -40,6 +40,7 @@ model User {
   backtestRuns           BacktestRun[]
   decisionSnapshots      DecisionSnapshot[]
   notificationDeliveries NotificationDelivery[]
+  auditEntries           AuditEntry[]
 
   @@index([email])
 }
@@ -552,6 +553,51 @@ model TaxValuation {
 
   @@unique([portfolioId, peilYear])
   @@index([portfolioId])
+}
+
+// ============================================================
+//  AUDIT LOG
+// ============================================================
+
+/// Append-only audit-log voor compliance + multi-user-discovery.
+/// Pinpoints "wie wijzigde wat wanneer" voor security-relevante acties:
+/// policy-update, manual tax-valuation, watchlist add/remove, transaction
+/// import, demo-auth-disabled, etc.
+///
+/// Conventies:
+/// - **Append-only**. Geen `update`-pad. Een gerepareerde state vereist
+///   een nieuwe entry; de oude blijft staan voor traceability.
+/// - **Geen PII in `before`/`after`**. Email-/IP-hashen reeds elders;
+///   audit-rijen mogen alleen IDs + non-sensitive labels bevatten.
+/// - **`category`** is een grove top-level cluster (`auth`, `policy`,
+///   `tax`, `watchlist`, `transactions`, `notifications`, `system`),
+///   `action` is de specifieke verb (`update`, `import`, `delete`, etc.).
+/// - **`ipHash`** is optioneel — voor server-side acties waar geen IP
+///   beschikbaar is, blijft 'em null.
+model AuditEntry {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  category     String
+  action       String
+  /// Optionele resource-pointer (bv. portfolioId, transactionId).
+  resourceType String?
+  resourceId   String?
+
+  /// Korte uitleg-string. Geen blob — dat zou een wildcard zijn voor PII.
+  summary String
+
+  /// JSON-context — alleen non-sensitive metadata (bv. before/after caps).
+  /// PII (email, IP) hoort er NIET in.
+  metadata Json?
+
+  ipHash    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([category, createdAt])
+  @@index([resourceType, resourceId])
 }
 
 // ============================================================

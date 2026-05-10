@@ -62,7 +62,7 @@ function extractClientIp(request: NextRequest): string {
   return "unknown";
 }
 
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   const startMs = Date.now();
   const { pathname } = request.nextUrl;
   const method = request.method;
@@ -126,3 +126,8 @@ export function middleware(request: NextRequest): NextResponse {
     },
   );
 }
+
+// Backwards-compat alias zodat bestaande tests + andere imports niet
+// in één klap omgewogen hoeven te worden. De Next-runtime gebruikt
+// alleen de `proxy`-export.
+export { proxy as middleware };

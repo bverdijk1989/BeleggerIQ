@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
+import packageJson from "../../../../package.json";
 import { prisma } from "@/lib/data/prisma";
 import { log } from "@/lib/log";
+
+const APP_VERSION = (packageJson as { version?: string }).version ?? null;
 
 /**
  * GET /api/health
@@ -101,7 +104,10 @@ export async function GET(): Promise<NextResponse> {
         process.env.GITHUB_SHA ??
         null,
       builtAt: process.env.BIQ_BUILD_TIME ?? null,
-      appVersion: process.env.npm_package_version ?? null,
+      // npm_package_version is alleen aanwezig wanneer via `npm start`
+      // gestart; via systemd's `node next start` ontbreekt 'em. We lezen
+      // 'em daarom uit `package.json` als fallback (build-time-import).
+      appVersion: process.env.npm_package_version ?? APP_VERSION,
     },
     uptimeSec: Math.round(process.uptime()),
   };

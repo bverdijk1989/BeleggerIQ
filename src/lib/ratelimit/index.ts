@@ -5,7 +5,7 @@ import type { ConsumeResult } from "./token-bucket";
 /**
  * High-level entry-point voor de rate-limiter.
  *
- * Gebruikt door `src/middleware.ts` (Next-middleware) en door eventuele
+ * Gebruikt door `src/proxy.ts` (Next 16 proxy-laag) en door eventuele
  * unit-tests. Geen Next-imports — deze module blijft framework-vrij
  * zodat 'em ook in een Server Action of API-route kan worden hergebruikt
  * zonder fragiele edge-runtime gymnastiek.

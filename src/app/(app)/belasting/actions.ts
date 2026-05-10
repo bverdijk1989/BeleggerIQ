@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { audit } from "@/lib/audit";
 import { matchesSessionUser, resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository, taxValuationRepository } from "@/lib/data";
 
@@ -59,6 +60,20 @@ export async function saveManualValuation(
     note: input.note ?? null,
   });
 
+  await audit.record({
+    userEmail: auth.user.email,
+    category: "tax",
+    action: "valuation_upsert",
+    resourceType: "TaxValuation",
+    resourceId: `${input.portfolioId}:${input.peilYear}`,
+    summary: `Manual peildatum-waardering ${input.peilYear} = €${Math.round(input.totalValue)}`,
+    metadata: {
+      peilYear: input.peilYear,
+      totalValue: input.totalValue,
+      source: input.source ?? null,
+    },
+  });
+
   revalidatePath("/belasting");
   return { ok: true };
 }
@@ -79,6 +94,17 @@ export async function deleteManualValuation(input: {
   }
 
   await taxValuationRepository.delete(input.portfolioId, input.peilYear);
+
+  await audit.record({
+    userEmail: auth.user.email,
+    category: "tax",
+    action: "valuation_delete",
+    resourceType: "TaxValuation",
+    resourceId: `${input.portfolioId}:${input.peilYear}`,
+    summary: `Manual peildatum-waardering ${input.peilYear} verwijderd`,
+    metadata: { peilYear: input.peilYear },
+  });
+
   revalidatePath("/belasting");
   return { ok: true };
 }

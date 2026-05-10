@@ -9,8 +9,29 @@ import type {
   Quote,
 } from "@/types/market";
 
+import {
+  CircuitBreakerOpenError,
+  withCircuitBreaker,
+} from "../resilience";
+
 import type { MarketDataProvider } from "./types";
 import { yahooClient } from "./yahoo-client";
+
+/**
+ * Circuit-breaker config voor de Yahoo-adapter. Wanneer 5 opeenvolgende
+ * calls falen, openen we de circuit voor 30s — alle calls falen meteen
+ * (return null/empty) i.p.v. te wachten op timeouts. Beschermt tegen
+ * de "yahoo-finance2 outage = blinde app"-failure-mode.
+ */
+const YAHOO_BREAKER = {
+  name: "yahoo-finance",
+  failureThreshold: 5,
+  cooldownMs: 30_000,
+} as const;
+
+function isCircuitOpen(error: unknown): boolean {
+  return error instanceof CircuitBreakerOpenError;
+}
 
 /**
  * Yahoo Finance adapter via de `yahoo-finance2` package (v3).
@@ -147,12 +168,21 @@ export class YahooMarketDataProvider implements MarketDataProvider {
 
   async getQuote(ticker: string): Promise<Quote | null> {
     try {
-      const raw = (await yahooClient.quote(ticker)) as unknown as
-        | YahooQuoteShape
-        | undefined;
+      const raw = await withCircuitBreaker(
+        async () =>
+          (await yahooClient.quote(ticker)) as unknown as
+            | YahooQuoteShape
+            | undefined,
+        YAHOO_BREAKER,
+      );
       if (!raw) return null;
       return mapQuote(ticker, raw);
     } catch (error) {
+      if (isCircuitOpen(error)) {
+        // Fail-fast — log één keer per cooldown-period zodat journalctl
+        // niet vol stroomt met dezelfde melding.
+        return null;
+      }
       log.warn("yahoo:quote", "fetch failed", { ticker, error });
       return null;
     }
@@ -161,10 +191,14 @@ export class YahooMarketDataProvider implements MarketDataProvider {
   async getQuotes(tickers: string[]): Promise<Quote[]> {
     if (tickers.length === 0) return [];
     try {
-      const raw = (await yahooClient.quote(tickers)) as unknown as
-        | YahooQuoteShape
-        | YahooQuoteShape[]
-        | undefined;
+      const raw = await withCircuitBreaker(
+        async () =>
+          (await yahooClient.quote(tickers)) as unknown as
+            | YahooQuoteShape
+            | YahooQuoteShape[]
+            | undefined,
+        YAHOO_BREAKER,
+      );
       if (!raw) return [];
       const list = Array.isArray(raw) ? raw : [raw];
       const mapped: Quote[] = [];
@@ -174,6 +208,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
       }
       return mapped;
     } catch (error) {
+      if (isCircuitOpen(error)) return [];
       log.warn("yahoo:quotes", "batch fetch failed", {
         count: tickers.length,
         error,

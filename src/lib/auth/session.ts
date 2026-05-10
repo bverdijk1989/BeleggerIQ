@@ -47,12 +47,24 @@ const SESSION_COOKIE = "biq_session";
 const DEV_HEADER = "x-beleggeriq-user";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function demoAllowed(): boolean {
-  return process.env.BIQ_ALLOW_DEMO_AUTH === "true";
-}
-
 function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
+}
+
+function demoAllowed(): boolean {
+  // **Productie-guard.** BIQ_ALLOW_DEMO_AUTH=true mag NOOIT in productie
+  // zijn — anders zou iedereen met de URL als demo-user inloggen. We
+  // weigeren 'em hier expliciet zodat een operator-ongeluk in
+  // .env.production niet in stilte tot een security-breach leidt.
+  if (process.env.BIQ_ALLOW_DEMO_AUTH !== "true") return false;
+  if (isProduction()) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[auth] BIQ_ALLOW_DEMO_AUTH=true is geweigerd in productie — demo-fallback uitgeschakeld.",
+    );
+    return false;
+  }
+  return true;
 }
 
 function getSessionSecret(): string | null {

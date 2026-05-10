@@ -166,6 +166,17 @@ describe("resolveUser — demo fallback", () => {
     const auth = resolveUser(mockRequest());
     expect(auth.ok).toBe(false);
   });
+
+  it("WEIGERT demo fallback in productie ook als BIQ_ALLOW_DEMO_AUTH=true (security-guard)", () => {
+    setEnv({
+      BIQ_ALLOW_DEMO_AUTH: "true",
+      DEMO_USER_EMAIL: "demo@example.com",
+      NODE_ENV: "production",
+    });
+    const auth = resolveUser(mockRequest());
+    expect(auth.ok).toBe(false);
+    if (!auth.ok) expect(auth.status).toBe(401);
+  });
 });
 
 describe("matchesSessionUser", () => {

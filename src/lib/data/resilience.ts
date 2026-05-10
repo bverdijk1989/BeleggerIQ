@@ -114,6 +114,125 @@ export async function withRetry<T>(
   throw lastError;
 }
 
+// ============================================================
+//  Circuit breaker
+// ============================================================
+
+/**
+ * Per-naam circuit-breaker state. Mitigeert het risico dat een flaky
+ * provider (bv. `yahoo-finance2` in een outage) de hele app blokkeert
+ * door consequent timeouts/errors te genereren — elke call wacht dan
+ * `timeoutMs` voordat 'em uiteindelijk faalt, terwijl we al weten
+ * dat het mis is.
+ *
+ * Eenvoudige drie-staat machine:
+ *  - **closed**     normale werking
+ *  - **open**       trip; calls falen meteen (skip de echte call) tot
+ *                   `cooldownMs` voorbij is
+ *  - **half_open**  na cooldown laten we ÉÉN probe door — succes →
+ *                   closed; fail → opnieuw open met dezelfde cooldown
+ *
+ * Module-level state — single-instance only. Voor multi-instance
+ * gebruik de Redis-store (zie M21 in IMPLEMENTATION_SEQUENCE.md).
+ */
+
+interface BreakerState {
+  status: "closed" | "open" | "half_open";
+  consecutiveFailures: number;
+  openedAt: number;
+}
+
+export interface CircuitBreakerOptions {
+  /** Naam (voor logging + state-isolatie tussen onafhankelijke breakers). */
+  name: string;
+  /** Aantal opeenvolgende failures voor 'em opent. Default 5. */
+  failureThreshold?: number;
+  /** Hoe lang circuit open blijft voordat half-open. Default 30s. */
+  cooldownMs?: number;
+}
+
+const breakers = new Map<string, BreakerState>();
+
+function getBreaker(name: string): BreakerState {
+  let b = breakers.get(name);
+  if (!b) {
+    b = { status: "closed", consecutiveFailures: 0, openedAt: 0 };
+    breakers.set(name, b);
+  }
+  return b;
+}
+
+export class CircuitBreakerOpenError extends Error {
+  readonly breakerName: string;
+  constructor(name: string) {
+    super(`Circuit breaker '${name}' is open — fail fast`);
+    this.name = "CircuitBreakerOpenError";
+    this.breakerName = name;
+  }
+}
+
+/**
+ * Wraps `producer` met een fail-fast circuit-breaker. Eerste aanroep
+ * altijd doorgelaten; daarna wordt status bijgehouden per `options.name`.
+ *
+ * Bij `open`-status gooien we `CircuitBreakerOpenError` zonder de
+ * onderliggende producer aan te roepen — de caller kan dan een fallback
+ * (cache, secondary provider, neutraal default) activeren.
+ */
+export async function withCircuitBreaker<T>(
+  producer: () => Promise<T>,
+  options: CircuitBreakerOptions,
+): Promise<T> {
+  const { name } = options;
+  const failureThreshold = options.failureThreshold ?? 5;
+  const cooldownMs = options.cooldownMs ?? 30_000;
+  const breaker = getBreaker(name);
+  const now = Date.now();
+
+  if (breaker.status === "open") {
+    if (now - breaker.openedAt >= cooldownMs) {
+      breaker.status = "half_open";
+      log.info("circuit", "half_open_probe", { name });
+    } else {
+      throw new CircuitBreakerOpenError(name);
+    }
+  }
+
+  try {
+    const result = await producer();
+    if (breaker.status === "half_open" || breaker.consecutiveFailures > 0) {
+      log.info("circuit", "closed_after_recovery", {
+        name,
+        previousFailures: breaker.consecutiveFailures,
+      });
+    }
+    breaker.status = "closed";
+    breaker.consecutiveFailures = 0;
+    breaker.openedAt = 0;
+    return result;
+  } catch (error) {
+    breaker.consecutiveFailures += 1;
+    if (
+      breaker.status === "half_open" ||
+      breaker.consecutiveFailures >= failureThreshold
+    ) {
+      breaker.status = "open";
+      breaker.openedAt = now;
+      log.warn("circuit", "tripped_open", {
+        name,
+        consecutiveFailures: breaker.consecutiveFailures,
+        cooldownMs,
+      });
+    }
+    throw error;
+  }
+}
+
+/** Test-only: reset alle breakers (gebruik in `afterEach` zodat tests niet leaken). */
+export function resetCircuitBreakersForTest(): void {
+  breakers.clear();
+}
+
 export interface FetchWithResilienceOptions extends RequestInit {
   /** Per-poging timeout in ms. Default 8s — past binnen serverless budgets. */
   timeoutMs?: number;
