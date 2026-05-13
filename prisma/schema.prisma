@@ -29,6 +29,9 @@ model User {
   email     String   @unique
   name      String?
   image     String?
+  /// bcrypt-hash van het wachtwoord. NULL = user logt alleen in via
+  /// magic-link of OAuth (geen password set). Module 18.
+  passwordHash String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
