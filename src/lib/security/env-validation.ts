@@ -103,6 +103,15 @@ export function validateEnv(opts: EnvValidationOptions = {}): EnvValidationResul
     );
   }
 
+  // 6. OAuth: beide-of-geen — half-gezet is een config-bug
+  const hasClientId = Boolean(env.GOOGLE_CLIENT_ID);
+  const hasClientSecret = Boolean(env.GOOGLE_CLIENT_SECRET);
+  if (hasClientId !== hasClientSecret) {
+    errors.push(
+      "Google OAuth half-configured: GOOGLE_CLIENT_ID en GOOGLE_CLIENT_SECRET moeten allebei gezet zijn of allebei niet",
+    );
+  }
+
   return {
     ok: errors.length === 0,
     errors,
