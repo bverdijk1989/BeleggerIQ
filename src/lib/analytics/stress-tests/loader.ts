@@ -38,6 +38,7 @@ export async function loadStressTestReport(
   const view = await buildPortfolioView(portfolio, {
     includeFundamentals: false,
     includeFactorScores: false,
+    cashBalance: portfolio.cashBalance,
   }).catch(() => null);
   if (!view) return { report: null, noPortfolio: true };
 

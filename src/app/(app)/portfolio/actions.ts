@@ -138,3 +138,259 @@ export async function importDegiroCsv(
     };
   }
 }
+
+// ============================================================
+//  Add single position
+// ============================================================
+
+export interface AddPositionInput {
+  portfolioId: string;
+  ticker: string;
+  name: string;
+  quantity: number;
+  avgCostPrice: number;
+  currency: string;
+  assetClass:
+    | "EQUITY"
+    | "ETF"
+    | "BOND"
+    | "REIT"
+    | "COMMODITY"
+    | "CRYPTO"
+    | "OTHER";
+  sector?: string | null;
+  region?: string | null;
+  isin?: string | null;
+}
+
+export interface AddPositionResult {
+  ok: boolean;
+  message: string;
+  holdingId?: string;
+}
+
+function validateAddPosition(
+  input: unknown,
+): { ok: true; value: AddPositionInput } | { ok: false; error: string } {
+  if (!input || typeof input !== "object") {
+    return { ok: false, error: "Invalid input." };
+  }
+  const o = input as Record<string, unknown>;
+  if (typeof o.portfolioId !== "string" || o.portfolioId.length === 0) {
+    return { ok: false, error: "Portfolio ontbreekt." };
+  }
+  if (typeof o.ticker !== "string") {
+    return { ok: false, error: "Ticker ontbreekt." };
+  }
+  const ticker = o.ticker.trim().toUpperCase();
+  if (ticker.length === 0 || ticker.length > 32) {
+    return { ok: false, error: "Ticker moet 1-32 tekens zijn." };
+  }
+  if (!/^[A-Z0-9./\-]+$/.test(ticker)) {
+    return { ok: false, error: "Ticker bevat ongeldige tekens." };
+  }
+  if (typeof o.name !== "string" || o.name.trim().length === 0) {
+    return { ok: false, error: "Naam is verplicht." };
+  }
+  if (typeof o.quantity !== "number" || !Number.isFinite(o.quantity) || o.quantity <= 0) {
+    return { ok: false, error: "Aantal moet groter dan 0 zijn." };
+  }
+  if (
+    typeof o.avgCostPrice !== "number" ||
+    !Number.isFinite(o.avgCostPrice) ||
+    o.avgCostPrice < 0
+  ) {
+    return { ok: false, error: "Gemiddelde kostprijs moet ≥ 0 zijn." };
+  }
+  if (typeof o.currency !== "string" || !/^[A-Z]{3}$/.test(o.currency)) {
+    return { ok: false, error: "Ongeldige valuta (3 letters, bv. EUR)." };
+  }
+  const validAssetClasses = [
+    "EQUITY",
+    "ETF",
+    "BOND",
+    "REIT",
+    "COMMODITY",
+    "CRYPTO",
+    "OTHER",
+  ];
+  if (
+    typeof o.assetClass !== "string" ||
+    !validAssetClasses.includes(o.assetClass)
+  ) {
+    return { ok: false, error: "Ongeldige asset-class." };
+  }
+  return {
+    ok: true,
+    value: {
+      portfolioId: o.portfolioId,
+      ticker,
+      name: o.name.trim().slice(0, 120),
+      quantity: o.quantity,
+      avgCostPrice: o.avgCostPrice,
+      currency: o.currency,
+      assetClass: o.assetClass as AddPositionInput["assetClass"],
+      sector:
+        typeof o.sector === "string" && o.sector.length <= 80
+          ? o.sector.trim() || null
+          : null,
+      region:
+        typeof o.region === "string" && o.region.length <= 80
+          ? o.region.trim() || null
+          : null,
+      isin:
+        typeof o.isin === "string" && /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(o.isin)
+          ? o.isin.trim()
+          : null,
+    },
+  };
+}
+
+export async function addPositionAction(
+  input: AddPositionInput,
+): Promise<AddPositionResult> {
+  const auth = await resolveUserFromServer();
+  if (!auth.ok) return { ok: false, message: auth.error };
+
+  const validated = validateAddPosition(input);
+  if (!validated.ok) {
+    return { ok: false, message: validated.error };
+  }
+  const v = validated.value;
+
+  // Ownership check.
+  const ownerEmail = await portfolioRepository.findOwnerEmailById(v.portfolioId);
+  if (!ownerEmail) {
+    return { ok: false, message: "Portefeuille bestaat niet." };
+  }
+  if (!matchesSessionUser(auth.user, ownerEmail)) {
+    return { ok: false, message: "Geen rechten op deze portefeuille." };
+  }
+
+  try {
+    const { created, updated } = await portfolioRepository.upsertHoldings(
+      v.portfolioId,
+      [
+        {
+          ticker: v.ticker,
+          name: v.name,
+          quantity: v.quantity,
+          avgCostPrice: v.avgCostPrice,
+          currency: v.currency as "EUR" | "USD" | "GBP" | "CHF" | "JPY",
+          assetClass: v.assetClass,
+          sector: v.sector,
+          region: v.region,
+          isin: v.isin,
+        },
+      ],
+    );
+
+    revalidatePath("/portfolio");
+    revalidatePath("/dashboard");
+
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "transactions",
+      action: created > 0 ? "position_add" : "position_update",
+      resourceType: "Portfolio",
+      resourceId: v.portfolioId,
+      summary:
+        created > 0
+          ? `Positie ${v.ticker} toegevoegd (${v.quantity} @ ${v.avgCostPrice} ${v.currency})`
+          : `Positie ${v.ticker} bijgewerkt`,
+      metadata: { ticker: v.ticker, assetClass: v.assetClass },
+    });
+
+    return {
+      ok: true,
+      message:
+        created > 0
+          ? `${v.ticker} toegevoegd aan je portefeuille.`
+          : `${v.ticker} stond al in je portefeuille — bijgewerkt.`,
+    };
+  } catch (error) {
+    log.error("portfolio", "add_position_failed", {
+      portfolioId: v.portfolioId,
+      rawMessage: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ok: false,
+      message: "Toevoegen mislukt door een interne fout. Probeer het opnieuw.",
+    };
+  }
+}
+
+// ============================================================
+//  Update cash balance
+// ============================================================
+
+export interface UpdateCashInput {
+  portfolioId: string;
+  cashBalance: number;
+}
+
+export interface UpdateCashResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function updateCashBalanceAction(
+  input: UpdateCashInput,
+): Promise<UpdateCashResult> {
+  const auth = await resolveUserFromServer();
+  if (!auth.ok) return { ok: false, message: auth.error };
+
+  if (
+    typeof input?.portfolioId !== "string" ||
+    input.portfolioId.length === 0
+  ) {
+    return { ok: false, message: "Portfolio ontbreekt." };
+  }
+  if (
+    typeof input.cashBalance !== "number" ||
+    !Number.isFinite(input.cashBalance) ||
+    input.cashBalance < 0 ||
+    input.cashBalance > 1_000_000_000
+  ) {
+    return { ok: false, message: "Cash-bedrag moet tussen 0 en 1.000.000.000 liggen." };
+  }
+
+  const ownerEmail = await portfolioRepository.findOwnerEmailById(input.portfolioId);
+  if (!ownerEmail) {
+    return { ok: false, message: "Portefeuille bestaat niet." };
+  }
+  if (!matchesSessionUser(auth.user, ownerEmail)) {
+    return { ok: false, message: "Geen rechten op deze portefeuille." };
+  }
+
+  try {
+    await portfolioRepository.updateCashBalance(
+      input.portfolioId,
+      input.cashBalance,
+    );
+
+    revalidatePath("/portfolio");
+    revalidatePath("/dashboard");
+
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "transactions",
+      action: "cash_balance_update",
+      resourceType: "Portfolio",
+      resourceId: input.portfolioId,
+      summary: `Cash-balans geüpdatet naar ${input.cashBalance.toFixed(2)}`,
+      metadata: { newBalance: input.cashBalance },
+    });
+
+    return { ok: true, message: `Cash-balans bijgewerkt naar ${input.cashBalance.toFixed(2)}.` };
+  } catch (error) {
+    log.error("portfolio", "update_cash_failed", {
+      portfolioId: input.portfolioId,
+      rawMessage: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ok: false,
+      message: "Cash-update mislukt. Probeer het opnieuw.",
+    };
+  }
+}

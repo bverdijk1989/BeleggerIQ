@@ -112,6 +112,10 @@ model Portfolio {
   description  String?
   baseCurrency String  @default("EUR")
   isPrimary    Boolean @default(false)
+  /// Cash-balans in `baseCurrency`. Denormalized (één waarde per portfolio).
+  /// Module 19 — bestaande snapshot-time-series in `PortfolioSnapshot.cashBalance`
+  /// blijft de historische bron; deze kolom is de actuele state.
+  cashBalance  Decimal @default(0) @db.Decimal(20, 2)
 
   holdings          Holding[]
   snapshots         PortfolioSnapshot[]

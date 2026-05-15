@@ -10,6 +10,7 @@ function makePortfolio(): Portfolio {
     name: "Test",
     baseCurrency: "EUR",
     isPrimary: true,
+    cashBalance: 0,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z",
     holdings: [

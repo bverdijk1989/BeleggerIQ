@@ -93,6 +93,8 @@ export interface Portfolio {
   description?: string | null;
   baseCurrency: Currency;
   isPrimary: boolean;
+  /** Cash-balans in `baseCurrency` (denormalized op DB-niveau). */
+  cashBalance: number;
   holdings: Holding[];
   createdAt: ISODateString;
   updatedAt: ISODateString;

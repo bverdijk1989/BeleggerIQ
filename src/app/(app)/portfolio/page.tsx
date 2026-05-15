@@ -4,7 +4,6 @@ import { DataQualityPanel } from "@/components/common/data-quality-panel";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
-import { Button } from "@/components/ui/button";
 import { buildPortfolioView } from "@/lib/analytics";
 import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
 import { resolveUserFromServer } from "@/lib/auth";
@@ -12,6 +11,8 @@ import { portfolioRepository } from "@/lib/data";
 import { enrichInstruments } from "@/lib/data/instrument-enrichment";
 
 import { buildHoldingRows } from "./build-rows";
+import { AddPositionDialog } from "./components/add-position-dialog";
+import { CashBalanceDialog } from "./components/cash-balance-dialog";
 import { HoldingsTable } from "./components/holdings-table";
 import { ImportDegiroDialog } from "./components/import-degiro-dialog";
 import { PortfolioSummaryCards } from "./components/portfolio-summary-cards";
@@ -50,6 +51,7 @@ export default async function PortfolioPage() {
     topN: 5,
     includeFundamentals: true,
     includeFactorScores: true,
+    cashBalance: portfolio.cashBalance,
   });
 
   const rows = buildHoldingRows(view.summary, view.valuations);
@@ -90,13 +92,21 @@ export default async function PortfolioPage() {
         title="Portefeuille"
         description={`Actieve portefeuille: ${portfolio.name}. Bijgewerkt op ${updatedAt}.`}
         actions={
-          <>
+          <div className="flex flex-wrap gap-2">
             <ImportDegiroDialog
               portfolioId={portfolio.id}
               portfolioName={portfolio.name}
             />
-            <Button size="sm">Positie toevoegen</Button>
-          </>
+            <AddPositionDialog
+              portfolioId={portfolio.id}
+              portfolioName={portfolio.name}
+            />
+            <CashBalanceDialog
+              portfolioId={portfolio.id}
+              baseCurrency={portfolio.baseCurrency}
+              currentCash={portfolio.cashBalance}
+            />
+          </div>
         }
       />
 

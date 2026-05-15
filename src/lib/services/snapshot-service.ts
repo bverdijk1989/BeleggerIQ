@@ -102,6 +102,7 @@ async function findPortfolioById(id: string): Promise<Portfolio | null> {
     description: row.description,
     baseCurrency: row.baseCurrency as Portfolio["baseCurrency"],
     isPrimary: row.isPrimary,
+    cashBalance: Number(row.cashBalance ?? 0),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     holdings: row.holdings.map((h) => ({

@@ -177,6 +177,7 @@ export default async function DashboardPage({
     buildPortfolioView(portfolio, {
       includeFundamentals: true,
       includeFactorScores: true,
+      cashBalance: portfolio.cashBalance,
     }),
     fetchRegimeInputs(),
     portfolioSnapshotRepository

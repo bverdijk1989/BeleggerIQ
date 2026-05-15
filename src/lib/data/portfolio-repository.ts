@@ -179,6 +179,20 @@ export const portfolioRepository = {
     }
     return { created, updated };
   },
+
+  /**
+   * Update de cash-balans van een portfolio. Geen historie — gebruik
+   * `PortfolioSnapshot` voor tijdsreeks. Module 19.
+   */
+  async updateCashBalance(
+    portfolioId: string,
+    cashBalance: number,
+  ): Promise<void> {
+    await prisma.portfolio.update({
+      where: { id: portfolioId },
+      data: { cashBalance },
+    });
+  },
 };
 
 function mapPortfolio(row: PortfolioWithHoldings): Portfolio {
@@ -189,6 +203,7 @@ function mapPortfolio(row: PortfolioWithHoldings): Portfolio {
     description: row.description,
     baseCurrency: row.baseCurrency as Portfolio["baseCurrency"],
     isPrimary: row.isPrimary,
+    cashBalance: Number(row.cashBalance ?? 0),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     holdings: row.holdings.map(mapHolding),
