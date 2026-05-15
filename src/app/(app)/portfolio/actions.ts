@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { audit } from "@/lib/audit";
 import { matchesSessionUser, resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import { prisma } from "@/lib/data/prisma";
 import { log } from "@/lib/log";
 import {
   parseDegiroCsv,
@@ -391,6 +392,213 @@ export async function updateCashBalanceAction(
     return {
       ok: false,
       message: "Cash-update mislukt. Probeer het opnieuw.",
+    };
+  }
+}
+
+// ============================================================
+//  Update single position (by holding-id)
+// ============================================================
+
+export interface UpdatePositionInput {
+  holdingId: string;
+  name?: string;
+  quantity?: number;
+  avgCostPrice?: number;
+  sector?: string | null;
+  region?: string | null;
+  isin?: string | null;
+}
+
+export interface UpdatePositionResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function updatePositionAction(
+  input: UpdatePositionInput,
+): Promise<UpdatePositionResult> {
+  const auth = await resolveUserFromServer();
+  if (!auth.ok) return { ok: false, message: auth.error };
+
+  if (typeof input?.holdingId !== "string" || input.holdingId.length === 0) {
+    return { ok: false, message: "Holding-id ontbreekt." };
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (input.name !== undefined) {
+    if (typeof input.name !== "string" || input.name.trim().length === 0) {
+      return { ok: false, message: "Naam mag niet leeg zijn." };
+    }
+    updates.name = input.name.trim().slice(0, 120);
+  }
+  if (input.quantity !== undefined) {
+    if (
+      typeof input.quantity !== "number" ||
+      !Number.isFinite(input.quantity) ||
+      input.quantity <= 0
+    ) {
+      return { ok: false, message: "Aantal moet groter dan 0 zijn." };
+    }
+    updates.quantity = input.quantity;
+  }
+  if (input.avgCostPrice !== undefined) {
+    if (
+      typeof input.avgCostPrice !== "number" ||
+      !Number.isFinite(input.avgCostPrice) ||
+      input.avgCostPrice < 0
+    ) {
+      return { ok: false, message: "Gemiddelde kostprijs moet ≥ 0 zijn." };
+    }
+    updates.avgCostPrice = input.avgCostPrice;
+  }
+  if (input.sector !== undefined) {
+    updates.sector =
+      typeof input.sector === "string" && input.sector.length <= 80
+        ? input.sector.trim() || null
+        : null;
+  }
+  if (input.region !== undefined) {
+    updates.region =
+      typeof input.region === "string" && input.region.length <= 80
+        ? input.region.trim() || null
+        : null;
+  }
+  if (input.isin !== undefined) {
+    if (input.isin === null || input.isin === "") {
+      updates.isin = null;
+    } else if (
+      typeof input.isin === "string" &&
+      /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(input.isin)
+    ) {
+      updates.isin = input.isin.trim();
+    } else {
+      return { ok: false, message: "ISIN heeft verkeerd formaat (12 chars)." };
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return { ok: false, message: "Geen wijzigingen om op te slaan." };
+  }
+
+  try {
+    const holding = await prisma.holding.findUnique({
+      where: { id: input.holdingId },
+      select: {
+        id: true,
+        ticker: true,
+        portfolioId: true,
+        portfolio: { select: { userId: true } },
+      },
+    });
+    if (!holding) {
+      return { ok: false, message: "Positie bestaat niet." };
+    }
+    const ctx = await portfolioRepository
+      .findUserContextByEmail(auth.user.email)
+      .catch(() => null);
+    if (!ctx?.userId || ctx.userId !== holding.portfolio.userId) {
+      return { ok: false, message: "Geen rechten op deze positie." };
+    }
+
+    await prisma.holding.update({
+      where: { id: input.holdingId },
+      data: updates,
+    });
+
+    revalidatePath("/portfolio");
+    revalidatePath("/dashboard");
+
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "transactions",
+      action: "position_update",
+      resourceType: "Holding",
+      resourceId: input.holdingId,
+      summary: `Positie ${holding.ticker} bijgewerkt (${Object.keys(updates).join(", ")})`,
+      metadata: { fields: Object.keys(updates) },
+    });
+
+    return { ok: true, message: `${holding.ticker} bijgewerkt.` };
+  } catch (error) {
+    log.error("portfolio", "update_position_failed", {
+      holdingId: input.holdingId,
+      rawMessage: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ok: false,
+      message: "Bijwerken mislukt. Probeer het opnieuw.",
+    };
+  }
+}
+
+// ============================================================
+//  Delete position
+// ============================================================
+
+export interface DeletePositionInput {
+  holdingId: string;
+}
+
+export interface DeletePositionResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function deletePositionAction(
+  input: DeletePositionInput,
+): Promise<DeletePositionResult> {
+  const auth = await resolveUserFromServer();
+  if (!auth.ok) return { ok: false, message: auth.error };
+
+  if (typeof input?.holdingId !== "string" || input.holdingId.length === 0) {
+    return { ok: false, message: "Holding-id ontbreekt." };
+  }
+
+  try {
+    const holding = await prisma.holding.findUnique({
+      where: { id: input.holdingId },
+      select: {
+        id: true,
+        ticker: true,
+        portfolioId: true,
+        portfolio: { select: { userId: true } },
+      },
+    });
+    if (!holding) {
+      return { ok: false, message: "Positie bestaat al niet meer." };
+    }
+    const ctx = await portfolioRepository
+      .findUserContextByEmail(auth.user.email)
+      .catch(() => null);
+    if (!ctx?.userId || ctx.userId !== holding.portfolio.userId) {
+      return { ok: false, message: "Geen rechten op deze positie." };
+    }
+
+    await prisma.holding.delete({ where: { id: input.holdingId } });
+
+    revalidatePath("/portfolio");
+    revalidatePath("/dashboard");
+
+    await audit.record({
+      userEmail: auth.user.email,
+      category: "transactions",
+      action: "position_delete",
+      resourceType: "Holding",
+      resourceId: input.holdingId,
+      summary: `Positie ${holding.ticker} verwijderd`,
+      metadata: { ticker: holding.ticker },
+    });
+
+    return { ok: true, message: `${holding.ticker} verwijderd.` };
+  } catch (error) {
+    log.error("portfolio", "delete_position_failed", {
+      holdingId: input.holdingId,
+      rawMessage: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      ok: false,
+      message: "Verwijderen mislukt door een interne fout.",
     };
   }
 }

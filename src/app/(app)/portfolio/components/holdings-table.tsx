@@ -8,6 +8,7 @@ import type { Currency } from "@/types/common";
 import type { FactorRationales } from "@/types/factor";
 
 import { ActionBadge } from "./action-badge";
+import { EditPositionDialog } from "./edit-position-dialog";
 import { ResearchDossierButton } from "./research-dossier-button";
 
 /**
@@ -36,6 +37,12 @@ export interface HoldingRow {
   rationales: FactorRationales | null;
   action: HoldingAction;
   actionRationale: string;
+  /** Velden die in de edit-dialog ge-prefilled worden. */
+  editable: {
+    avgCostPrice: number;
+    region: string | null;
+    isin: string | null;
+  };
 }
 
 interface HoldingsTableProps {
@@ -201,7 +208,20 @@ function HoldingRowView({ row, baseCurrency }: HoldingRowViewProps) {
       <td className="px-3 py-2 text-right">
         <div className="flex flex-col items-end gap-1">
           <ActionBadge action={row.action} rationale={row.actionRationale} />
-          <ResearchDossierButton ticker={row.ticker} label={row.name} />
+          <div className="flex items-center gap-1">
+            <EditPositionDialog
+              holdingId={row.id}
+              ticker={row.ticker}
+              name={row.name}
+              quantity={row.quantity}
+              avgCostPrice={row.editable.avgCostPrice}
+              sector={row.sector ?? null}
+              region={row.editable.region}
+              isin={row.editable.isin}
+              sourceCurrency={row.sourceCurrency}
+            />
+            <ResearchDossierButton ticker={row.ticker} label={row.name} />
+          </div>
         </div>
       </td>
     </tr>

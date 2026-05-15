@@ -59,5 +59,10 @@ function toRow(valuation: HoldingValuation, totalValue: number): HoldingRow {
     rationales: factor?.rationales ?? null,
     action: action.action,
     actionRationale: action.rationale,
+    editable: {
+      avgCostPrice: valuation.holding.avgCostPrice,
+      region: valuation.holding.region ?? null,
+      isin: valuation.holding.isin ?? null,
+    },
   };
 }
