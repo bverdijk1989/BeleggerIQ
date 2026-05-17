@@ -1,4 +1,4 @@
-# Stress-tests & Scenario-analyse — Module 12
+# Stress-tests & Scenario-analyse — Module 11
 
 9 vooraf-gedefinieerde scenarios + een builder voor je eigen worst-case, met per-positie impact, top-3 losers/winners, defensieve-sterkte-meter en AI-uitleg in spreektaal. **ELITE-feature** (entitlement: `scenario.analysis`).
 
@@ -6,23 +6,24 @@
 
 ---
 
-## 1. De 9 vooraf-gedefinieerde scenarios
+## 1. Module 11-spec mapping — 10 scenarios
 
-| ID | Label | Severity | Hoofd-impact |
-|---|---|---|---|
-| `RATES_UP_SHARP` | Rente stijgt sterk | severe | tech -18%, REIT -20%, financials +3% |
-| `RECESSION` | Recessie | severe | cyclisch -25-30%, defensief -5-8% |
-| `STAGFLATION` | Inflatie blijft hoog | severe | tech -20%, energy +10%, bonds -12% |
-| `TECH_SELLOFF` | Tech sell-off | severe | tech -35%, growth -38%, rest -5% |
-| `ENERGY_CRISIS` | Energiecrisis | severe | energy +30%, industrials -15% |
-| `USD_EUR_SHOCK` | Dollar/Euro-schok | moderate | non-base posities -10% via FX |
-| `MARKET_CRASH_20` | Marktcrash -20% | severe | brede markt -20%, beta-gewogen |
-| `SECTOR_ROTATION` | Sectorrotatie | moderate | growth -16%, value +10% |
-| `LIQUIDITY_CRISIS` | Liquiditeitscrisis | extreme | financials -30%, REIT -25% |
+| # | Spec | ID | Severity | Probability | Hoofd-impact |
+|---|---|---|---|---|---|
+| 1 | Marktcrash -20% | `MARKET_CRASH_20` | severe | medium | brede markt -20%, beta-gewogen |
+| 2 | Rente stijgt sterk | `RATES_UP_SHARP` | severe | medium | tech -18%, REIT -20%, financials +3% |
+| 3 | Recessie | `RECESSION` | severe | medium | cyclisch -25-30%, defensief -5-8% |
+| 4 | Inflatie blijft hoog | `STAGFLATION` | severe | medium | tech -20%, energy +10%, bonds -12% |
+| 5 | Tech sell-off | `TECH_SELLOFF` | severe | medium | tech -35%, growth -38%, rest -5% |
+| 6 | Energiecrisis | `ENERGY_CRISIS` | severe | low | energy +30%, industrials -15% |
+| 7 | Dollar/euro-schok | `USD_EUR_SHOCK` | moderate | medium | non-base posities -10% via FX |
+| 8 | Sectorrotatie | `SECTOR_ROTATION` | moderate | high | growth -16%, value +10% |
+| 9 | Liquiditeitscrisis | `LIQUIDITY_CRISIS` | extreme | low | financials -30%, REIT -25% |
+| 10 | Eigen scenario | `CUSTOM` | user-bepaald | n.v.t. | builder via [`buildCustomScenario`](../src/lib/analytics/stress-tests/custom.ts) |
 
-Elk scenario heeft een expliciete `assumptions[]`-lijst (Simons-laag) — getoond in de UI onder elke kaart, zodat de gebruiker ziet wát we modelleren.
+Elk scenario heeft een expliciete `assumptions[]`-lijst (Simons-laag) — getoond in de UI onder elke kaart, zodat de gebruiker ziet wát we modelleren. Plus `baselineProbability` + `severity` voor onzekerheidsdeclaratie.
 
-Het 10e scenario is **CUSTOM**: gebouwd door de gebruiker via `buildCustomScenario(input)` met sector-shock-overrides + bonds/currency/cash-shocks + severity.
+Het 10e scenario is **CUSTOM**: gebouwd door de gebruiker met sector-shock-overrides + bonds/currency/cash-shocks + severity.
 
 ---
 
