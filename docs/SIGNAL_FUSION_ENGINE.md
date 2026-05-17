@@ -1,4 +1,4 @@
-# Signal Fusion Engine — Module 6
+# Signal Fusion Engine — Module 7
 
 Combineert 10 signaalbronnen tot één **Investment Confidence Score** 0..100 per instrument. Géén black box: elke component is zichtbaar in de UI met score, gewicht, bijdrage, rationale en data-quality.
 
@@ -25,6 +25,27 @@ Combineert 10 signaalbronnen tot één **Investment Confidence Score** 0..100 pe
 
 **Buffett-bias**: quality + valuation = 35% — bewust het zwaarst.
 **Dalio-bias**: macro_sensitivity + portfolio_fit = 25% — risico/diversificatie expliciet.
+
+### Module 7-spec mapping
+
+De Module 7-spec noemt 10 score-componenten. Negen daarvan zijn 1-op-1 een `SignalKey`; **datakwaliteit** is bewust géén apart signaal (anders krijg je een score-over-een-score), maar zit op twee plekken:
+
+1. **Per signaal** als `dataQuality: "high" | "medium" | "low" | "missing"` — direct zichtbaar als pill in de UI-rij.
+2. **Composite-niveau** als `InvestmentConfidenceScore.dataQuality` + `effectiveWeight` + `warning`.
+
+| Module 7-spec | `SignalKey` (of meta) |
+|---|---|
+| Kwaliteit | `fundamental_quality` |
+| Waardering | `valuation` |
+| Momentum | `momentum` |
+| Volatiliteit | `volatility` |
+| Dividendkwaliteit | `dividend_quality` |
+| Macrofit | `macro_sensitivity` |
+| Portefeuillefit | `portfolio_fit` |
+| Datakwaliteit | **meta** (`dataQuality` + `effectiveWeight` + `warning`) |
+| Earnings/revisions | `earnings_revisions` |
+| Sentiment | `sentiment` |
+| (extra) Insider/analyst | `insider_analyst` |
 
 ---
 
