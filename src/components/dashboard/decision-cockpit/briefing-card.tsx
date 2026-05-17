@@ -85,7 +85,7 @@ export function BriefingCard({
       <CardContent className="space-y-3">
         <div className="rounded-md border border-border/40 bg-muted/20 p-3 text-xs">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Focuspunt vandaag
+            Aandachtspunt deze week
           </p>
           <p className="mt-1 text-foreground">{briefing.focusAction}</p>
         </div>

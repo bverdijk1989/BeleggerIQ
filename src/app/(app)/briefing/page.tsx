@@ -90,7 +90,7 @@ export default async function BriefingPage() {
       >
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Focuspunt vandaag
+            Aandachtspunt deze week
           </p>
           <p className="mt-1 text-sm text-foreground">{briefing.focusAction}</p>
         </div>

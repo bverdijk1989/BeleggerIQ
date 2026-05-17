@@ -41,7 +41,7 @@ export const BRIEFING_SECTION_LABELS: Record<BriefingSectionKey, string> = {
   macro: "Macro-signalen",
   earnings_news: "Earnings & nieuws",
   concentration_volatility: "Concentratie & volatiliteit",
-  focus_action: "Focuspunt voor vandaag",
+  focus_action: "Aandachtspunt voor deze week",
 };
 
 export interface BriefingSection {

@@ -96,7 +96,33 @@ Daardoor is dev/CI volledig zonder API-keys lopend.
 | 4 | `macro` | `MarketRegimeScore` | "Regime is neutraal (55/100, 70% confidence). Overweeg dat een neutraal regime gebalanceerde tilt aanmoedigt." |
 | 5 | `earnings_news` | (toekomstig) news-feed | Nu standaard: "Feed niet aangesloten." |
 | 6 | `concentration_volatility` | `view.risk` | "Sector Tech 42% — mogelijk verhoogde correlatie." |
-| 7 | `focus_action` | `dashboardActions[0]` | "Aandachtspunt vandaag: Trim ASML met 1 aandeel. Engine-confidence 78% (action-engine)." |
+| 7 | `focus_action` | `dashboardActions[0]` | "Aandachtspunt deze week: Trim ASML met 1 aandeel. Engine-confidence 78% (action-engine)." |
+
+---
+
+## 4b. Module 2 spec-mapping
+
+De Module 2-roadmap vraagt om een **7-component briefing** met expliciete componenten. Mapping op de bestaande implementatie:
+
+| Module 2 spec-component | Implementatie |
+|---|---|
+| 1. Samenvatting portefeuillestatus | `portfolio_movement`-sectie (P&L day/week/month) |
+| 2. Belangrijkste positieve ontwikkeling | `winners_losers`-sectie (P&L-tops) |
+| 3. Belangrijkste risico | `risks`-sectie (risk-engine output) |
+| 4. Grootste afwijking/concentratie | `concentration_volatility`-sectie |
+| 5. Macro/regimecontext | `macro`-sectie |
+| 6. Aandachtspunt deze week | `focus_action`-sectie + top-level `focusAction`-veld |
+| 7. Databeperkingen/onzekerheden | Top-level `dataLimitations: string[]` + `confidenceTier` |
+
+**Bonus 8e**: `earnings_news`-sectie (niet in Module 2 spec maar relevant zodra news-feed beschikbaar is).
+
+**"Geen schijnzekerheid"** (spec):
+- `disclaimer`-veld op `DailyBriefing` met vast template-tekst onder elke briefing
+- `confidenceTier` (low/medium/high) afgeleid uit data-coverage
+- Guardrail-banned-phrases voorkomen "garantie", "altijd", "zeker"
+- Hedged-language-vereisten op AI-output ("overweeg", "let op", "kan")
+
+Tests in `deterministic.test.ts` → `describe("Module 2 spec-conformiteit")` valideren de mapping (4 tests).
 
 ---
 
