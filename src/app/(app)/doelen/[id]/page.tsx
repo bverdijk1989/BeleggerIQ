@@ -8,6 +8,7 @@ import { FeasibilityBadge } from "@/components/goals/feasibility-badge";
 import { GoalForm } from "@/components/goals/goal-form";
 import { ProjectionChart } from "@/components/goals/projection-chart";
 import { Badge } from "@/components/ui/badge";
+import { buildPortfolioView } from "@/lib/analytics";
 import {
   computeGoalProjection,
   GOAL_TYPE_LABELS,
@@ -61,8 +62,8 @@ export default async function GoalDetailPage({ params }: Props) {
     );
   }
 
-  const goal = await goalRepository.getByIdForUser(ctx.userId, id);
-  if (!goal || !goal.isActive) {
+  const rawGoal = await goalRepository.getByIdForUser(ctx.userId, id);
+  if (!rawGoal || !rawGoal.isActive) {
     notFound();
   }
 
@@ -70,9 +71,27 @@ export default async function GoalDetailPage({ params }: Props) {
     .findByUserId(ctx.userId)
     .catch(() => []);
   const availablePortfolios = portfolios.map((p) => ({ id: p.id, name: p.name }));
-  const linkedPortfolio = goal.portfolioId
-    ? portfolios.find((p) => p.id === goal.portfolioId) ?? null
+  const linkedPortfolio = rawGoal.portfolioId
+    ? portfolios.find((p) => p.id === rawGoal.portfolioId) ?? null
     : null;
+
+  // Live-sync: als het doel aan een portefeuille gekoppeld is, gebruik de
+  // huidige totalValue uit buildPortfolioView i.p.v. het handmatige veld
+  // (Module 5-uitbreiding — zelfde gedrag als /doelen-overzicht).
+  let liveSynced = false;
+  let goal = rawGoal;
+  if (linkedPortfolio) {
+    try {
+      const view = await buildPortfolioView(linkedPortfolio, {
+        includeFundamentals: false,
+        includeFactorScores: false,
+      });
+      goal = { ...rawGoal, currentAmount: view.summary.totalValue };
+      liveSynced = true;
+    } catch {
+      // Fallback naar handmatige currentAmount.
+    }
+  }
 
   const projection = computeGoalProjection({ goal, asOf: new Date() });
   const targetDate = new Date(goal.targetDate);
@@ -84,7 +103,7 @@ export default async function GoalDetailPage({ params }: Props) {
         title={goal.name}
         description={
           linkedPortfolio
-            ? `Gekoppeld aan portefeuille "${linkedPortfolio.name}". ${goal.description ?? "Detail van je financiële doel."}`
+            ? `Gekoppeld aan portefeuille "${linkedPortfolio.name}"${liveSynced ? " — huidige stand wordt live uit de portefeuille gelezen" : ""}. ${goal.description ?? "Detail van je financiële doel."}`
             : goal.description ?? "Detail van je financiële doel."
         }
         actions={<FeasibilityBadge tier={projection.feasibility.tier} />}

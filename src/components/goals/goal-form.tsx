@@ -241,7 +241,11 @@ export function GoalForm({
           onChange={setCurrentAmount}
           type="number"
           step="100"
-          hint="Wat je nu al hebt opgebouwd richting dit doel."
+          hint={
+            portfolioId.length > 0
+              ? "Bij een gekoppelde portefeuille wordt deze waarde automatisch overschreven met de live portfolio-waarde — dit veld is alleen een fallback."
+              : "Wat je nu al hebt opgebouwd richting dit doel."
+          }
         />
 
         {/* Risicoprofiel */}

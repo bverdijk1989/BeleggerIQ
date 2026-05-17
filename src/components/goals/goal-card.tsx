@@ -28,9 +28,17 @@ interface Props {
   projection: GoalProjection;
   /** Optionele naam van de gekoppelde portefeuille (Module 5). */
   portfolioName?: string | null;
+  /** True als currentAmount uit de gekoppelde portefeuille is afgeleid
+   *  i.p.v. het handmatige "Huidige stand"-veld. */
+  liveSynced?: boolean;
 }
 
-export function GoalCard({ goal, projection, portfolioName }: Props) {
+export function GoalCard({
+  goal,
+  projection,
+  portfolioName,
+  liveSynced = false,
+}: Props) {
   const detailHref: Route = `/doelen/${goal.id}` as Route;
   const progressPct = Math.round(projection.progress * 100);
   const yearsLabel =
@@ -94,6 +102,9 @@ export function GoalCard({ goal, projection, portfolioName }: Props) {
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Briefcase className="h-3 w-3" aria-hidden />
             Gekoppeld aan {portfolioName ?? "portefeuille"}
+            {liveSynced && (
+              <span className="text-emerald-300"> · live waarde</span>
+            )}
           </p>
         )}
 

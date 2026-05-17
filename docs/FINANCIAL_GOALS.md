@@ -211,9 +211,13 @@ User kan handmatig overschrijven via `expectedAnnualReturn`.
 
 **Waarom nullable + SetNull**: een cash-buffer- of studiedoel staat vaak los van een beleggings-portefeuille. De koppeling moet optioneel zijn zodat het doel zelfstandig blijft bestaan ook als de gebruiker portefeuilles herstructureert.
 
-**Wat de koppeling (nu) doet**: organisatie + context-display. Een gekoppeld doel wordt op zowel `/doelen` als `/doelen/[id]` zichtbaar als "bij die portefeuille". De projectie zelf blijft onveranderd — input zijn de financiële parameters van het doel, niet de portefeuille (zie test `portfolioId beïnvloedt projectie niet`).
+**Wat de koppeling doet**:
 
-**Wat de koppeling (later) kan doen**: live `currentAmount` afleiden uit de portfolio-waarde × goal-fractie. Dit zit in §10 (Toekomst).
+1. **Organisatie + context-display**. Een gekoppeld doel wordt op zowel `/doelen` als `/doelen/[id]` zichtbaar als "bij die portefeuille", met een `— live waarde`-badge.
+
+2. **Live-sync van `currentAmount`** (uitgebreid mei 2026 — fix voor [issue: /doelen toonde €30.576 i.p.v. portfolio-totaal €80.874](../src/lib/analytics/goals/loader.test.ts)). De goal-loader haalt voor elk gelinkt doel de huidige portfolio-`totalValue` via `buildPortfolioView` en overschrijft `currentAmount` daarmee. Het handmatige veld in de form blijft als fallback voor doelen zonder koppeling, of als de market-data fetch faalt. Zie [`applyLivePortfolioValues`](../src/lib/analytics/goals/loader.ts) en [`loader.test.ts`](../src/lib/analytics/goals/loader.test.ts).
+
+De projectie-engine zelf blijft puur — `portfolioId` is geen input voor de berekening (zie test `portfolioId beïnvloedt projectie niet`). De live-sync gebeurt in de loader-laag, niet in de engine.
 
 ---
 
@@ -221,7 +225,7 @@ User kan handmatig overschrijven via `expectedAnnualReturn`.
 
 | Idee | Waarom |
 |---|---|
-| **Portfolio-link → live waarde**: koppel goal-currentAmount aan een fractie van het gekoppelde portfolio | Veld-koppeling staat er (Module 5), volgende stap: laat de waarde meebewegen met markt zonder handmatige update |
+| **Portfolio-link → goal-fractie** | Live-waarde-koppeling is er sinds mei 2026 (§9.2). Vervolgstap: koppel niet de hele portefeuille maar een **fractie** ervan aan een doel (bv. 60% naar pensioen, 40% naar huis kopen) |
 | **Inflatie-reëel** vs nominaal | Optie om doel + projectie in koopkracht-equivalent te tonen |
 | **Monte Carlo per goal** | Probability-of-success in plaats van 3 vaste scenario's; kan reuse maken van M18 |
 | **Tussendoelen** (milestones) | "10% bereikt → notify" / 25% / 50% — gamification + motivatie |

@@ -109,6 +109,7 @@ export default async function DoelenPage() {
                     ? portfolioNameById.get(goal.portfolioId) ?? null
                     : null
                 }
+                liveSynced={result.liveSyncedGoalIds.has(goal.id)}
               />
             ))}
           </div>
