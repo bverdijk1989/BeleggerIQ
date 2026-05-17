@@ -17,20 +17,20 @@ Wants=postgresql.service
 Type=simple
 User=beleggeriq
 Group=beleggeriq
-WorkingDirectory=/var/www/beleggeriq/current
-EnvironmentFile=/var/www/beleggeriq/shared/.env.production
+WorkingDirectory=/mnt/HC_Volume_105455257/apps/beleggeriq/current
+EnvironmentFile=/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.production
 # Build-info (BIQ_GIT_SHA / BIQ_BUILD_TIME) — geschreven door deploy.sh.
 # Optioneel ('-' prefix): de service start ook als 't bestand er niet is
 # (eerste deploy, of bij rollback naar een release van vóór deze conventie).
-EnvironmentFile=-/var/www/beleggeriq/shared/.env.build-info
-ExecStart=/usr/bin/node /var/www/beleggeriq/current/node_modules/.bin/next start -p 3003
+EnvironmentFile=-/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.build-info
+ExecStart=/usr/bin/node /mnt/HC_Volume_105455257/apps/beleggeriq/current/node_modules/.bin/next start -p 3003
 Restart=always
 RestartSec=5
 # Harden
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/www/beleggeriq /tmp
+ReadWritePaths=/mnt/HC_Volume_105455257/apps/beleggeriq /tmp
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

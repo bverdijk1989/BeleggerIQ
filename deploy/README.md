@@ -56,7 +56,7 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d beleggeriq.mijndomein.nl
 
 # --- Production env ---
-sudo -u beleggeriq tee /var/www/beleggeriq/shared/.env.production <<'EOF'
+sudo -u beleggeriq tee /mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.production <<'EOF'
 DATABASE_URL="postgresql://beleggeriq:<wachtwoord-uit-bootstrap>@localhost:5432/beleggeriq?schema=public"
 NEXT_PUBLIC_APP_NAME="BeleggerIQ"
 NEXT_PUBLIC_APP_URL="https://beleggeriq.mijndomein.nl"
@@ -66,8 +66,8 @@ BIQ_SESSION_SECRET="<openssl rand -hex 32 — min 32 tekens>"
 # Zet NIET op true in productie tenzij je bewust demo-auth wilt:
 # BIQ_ALLOW_DEMO_AUTH=false
 EOF
-sudo chmod 0600 /var/www/beleggeriq/shared/.env.production
-sudo chown beleggeriq:beleggeriq /var/www/beleggeriq/shared/.env.production
+sudo chmod 0600 /mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.production
+sudo chown beleggeriq:beleggeriq /mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.production
 
 # --- systemd ---
 sudo cp /path/to/repo/deploy/beleggeriq.service /etc/systemd/system/
@@ -75,7 +75,7 @@ sudo systemctl daemon-reload
 
 # --- Eerste release ---
 sudo -u beleggeriq -i
-cd /var/www/beleggeriq
+cd /mnt/HC_Volume_105455257/apps/beleggeriq
 wget https://raw.githubusercontent.com/bverdijk1989/BeleggerIQ/main/deploy/deploy.sh
 chmod +x deploy.sh
 ./deploy.sh
@@ -91,7 +91,7 @@ Check: `curl -I https://beleggeriq.mijndomein.nl` → `HTTP/2 200`.
 
 ```bash
 sudo -u beleggeriq -i
-cd /var/www/beleggeriq
+cd /mnt/HC_Volume_105455257/apps/beleggeriq
 ./deploy.sh                # pakt latest main
 ./deploy.sh v1.2.0         # specifieke tag
 ```
@@ -99,8 +99,8 @@ cd /var/www/beleggeriq
 ## Rollback
 
 ```bash
-ls /var/www/beleggeriq/releases/
-sudo -u beleggeriq ln -sfn /var/www/beleggeriq/releases/<prev-stamp> /var/www/beleggeriq/current
+ls /mnt/HC_Volume_105455257/apps/beleggeriq/releases/
+sudo -u beleggeriq ln -sfn /mnt/HC_Volume_105455257/apps/beleggeriq/releases/<prev-stamp> /mnt/HC_Volume_105455257/apps/beleggeriq/current
 sudo systemctl restart beleggeriq
 ```
 

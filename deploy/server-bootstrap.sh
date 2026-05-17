@@ -47,11 +47,19 @@ ufw allow 'Nginx Full'
 ufw --force enable
 
 echo "== [6/7] System user beleggeriq =="
+# User-home blijft op /var/www/beleggeriq (dotfiles + bash history).
+# App-artefacten (releases/, shared/, backups/, current) leven op het
+# Hetzner Cloud Volume om disk-pressure op / te vermijden.
+APP_BASE=/mnt/HC_Volume_105455257/apps/beleggeriq
 if ! id -u beleggeriq >/dev/null 2>&1; then
     useradd --system --create-home --home-dir /var/www/beleggeriq --shell /bin/bash beleggeriq
 fi
-mkdir -p /var/www/beleggeriq/releases /var/www/beleggeriq/shared
-chown -R beleggeriq:beleggeriq /var/www/beleggeriq
+if [ ! -d "$(dirname "$APP_BASE")" ]; then
+    echo "ERROR: $APP_BASE-parent bestaat niet — is het volume gemount?" >&2
+    exit 1
+fi
+mkdir -p "$APP_BASE/releases" "$APP_BASE/shared" "$APP_BASE/backups"
+chown -R beleggeriq:beleggeriq "$APP_BASE" /var/www/beleggeriq
 
 # sudoers-regel zodat de deploy-user alleen de eigen service mag herstarten.
 cat > /etc/sudoers.d/beleggeriq <<EOF
@@ -84,9 +92,9 @@ echo "Volgende stappen:"
 echo "  1. Kopieer deploy/nginx.conf.example naar /etc/nginx/sites-available/beleggeriq.conf en vul je subdomain in"
 echo "  2. ln -s ../sites-available/beleggeriq.conf /etc/nginx/sites-enabled/ && nginx -t && systemctl reload nginx"
 echo "  3. sudo certbot --nginx -d <subdomain>"
-echo "  4. Maak /var/www/beleggeriq/shared/.env.production aan (zie .env.example + DATABASE_URL hierboven)"
+echo "  4. Maak ${APP_BASE}/shared/.env.production aan (zie .env.example + DATABASE_URL hierboven)"
 echo "     Vergeet BIQ_SESSION_SECRET niet: openssl rand -hex 32"
 echo "  5. sudo cp deploy/beleggeriq.service /etc/systemd/system/ && systemctl daemon-reload"
-echo "  6. su - beleggeriq && cd /var/www/beleggeriq && wget https://raw.githubusercontent.com/bverdijk1989/BeleggerIQ/main/deploy/deploy.sh && chmod +x deploy.sh && ./deploy.sh"
+echo "  6. su - beleggeriq && cd ${APP_BASE} && wget https://raw.githubusercontent.com/bverdijk1989/BeleggerIQ/main/deploy/deploy.sh && chmod +x deploy.sh && ./deploy.sh"
 echo "  7. sudo systemctl enable --now beleggeriq"
 echo "================================================================="

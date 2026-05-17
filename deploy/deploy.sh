@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # BeleggerIQ 2.0 — deploy-script voor Hetzner (bare-metal).
 #
-# Draai dit script als user `beleggeriq` vanuit /var/www/beleggeriq.
+# Draai dit script als user `beleggeriq` vanuit /mnt/HC_Volume_105455257/apps/beleggeriq.
 # Elke deploy landt in een tijdelijke release-map en wordt pas actief
 # via een atomic symlink swap, zodat een gefaalde build de huidige
 # draaiende versie niet sloopt.
 #
 # Gebruik:
 #   su - beleggeriq
-#   cd /var/www/beleggeriq
+#   cd /mnt/HC_Volume_105455257/apps/beleggeriq
 #   ./deploy.sh                     # pull main, build, migrate, swap, restart
 #   ./deploy.sh <git-ref>           # specifieke tag/commit
 #   ./deploy.sh --rollback          # zwap `current` naar de vorige release
 #   ./deploy.sh --rollback <stamp>  # zwap naar specifieke release-stamp
 #
 # Rollback handmatig (zonder script):
-#   ln -sfn /var/www/beleggeriq/releases/<prev> /var/www/beleggeriq/current
+#   ln -sfn /mnt/HC_Volume_105455257/apps/beleggeriq/releases/<prev> /mnt/HC_Volume_105455257/apps/beleggeriq/current
 #   sudo systemctl restart beleggeriq
 
 set -euo pipefail
 
-BASE=/var/www/beleggeriq
+BASE=/mnt/HC_Volume_105455257/apps/beleggeriq
 REPO_URL="${REPO_URL:-https://github.com/bverdijk1989/BeleggerIQ.git}"
 KEEP_RELEASES=5
 

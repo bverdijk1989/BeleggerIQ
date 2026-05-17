@@ -21,15 +21,15 @@ After=network-online.target postgresql.service
 Type=oneshot
 User=beleggeriq
 Group=beleggeriq
-WorkingDirectory=/var/www/beleggeriq
-EnvironmentFile=/var/www/beleggeriq/shared/.env.backup
-ExecStart=/var/www/beleggeriq/current/deploy/backup.sh
+WorkingDirectory=/mnt/HC_Volume_105455257/apps/beleggeriq
+EnvironmentFile=/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup
+ExecStart=/mnt/HC_Volume_105455257/apps/beleggeriq/current/deploy/backup.sh
 
-# Hardening — backup-script schrijft alleen naar /tmp en /var/www/beleggeriq/shared
+# Hardening — backup-script schrijft alleen naar /tmp en /mnt/HC_Volume_105455257/apps/beleggeriq/shared
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/www/beleggeriq/shared /tmp
+ReadWritePaths=/mnt/HC_Volume_105455257/apps/beleggeriq/shared /tmp
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

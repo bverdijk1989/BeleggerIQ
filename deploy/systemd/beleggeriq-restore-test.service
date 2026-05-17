@@ -5,7 +5,7 @@
 # `restore-test.sh --list` (snel, ~5s) tegen de meest recente daily/.
 #
 # Voor een echte herstel-validatie (full restore in tijdelijke DB):
-#   sudo -u beleggeriq /var/www/beleggeriq/current/deploy/restore-test.sh --full
+#   sudo -u beleggeriq /mnt/HC_Volume_105455257/apps/beleggeriq/current/deploy/restore-test.sh --full
 #
 # Voer minstens elke maand handmatig de --full variant uit en log de
 # uitkomst in `docs/BACKUPS.md` → "Restore-validatie-log".
@@ -19,14 +19,14 @@ After=network-online.target
 Type=oneshot
 User=beleggeriq
 Group=beleggeriq
-WorkingDirectory=/var/www/beleggeriq
-EnvironmentFile=/var/www/beleggeriq/shared/.env.backup
-ExecStart=/var/www/beleggeriq/current/deploy/restore-test.sh --list
+WorkingDirectory=/mnt/HC_Volume_105455257/apps/beleggeriq
+EnvironmentFile=/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup
+ExecStart=/mnt/HC_Volume_105455257/apps/beleggeriq/current/deploy/restore-test.sh --list
 
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/www/beleggeriq/shared /tmp
+ReadWritePaths=/mnt/HC_Volume_105455257/apps/beleggeriq/shared /tmp
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

@@ -19,7 +19,7 @@
 # >30u-stale-backup een alert kan triggeren.
 #
 # Aanroep:
-#   ./backup.sh                        # gebruik /var/www/beleggeriq/shared/.env.backup
+#   ./backup.sh                        # gebruik /mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup
 #   BIQ_BACKUP_ENV=/path/.env ./backup.sh
 #
 # Cron:
@@ -32,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/backup-common.sh
 . "$SCRIPT_DIR/lib/backup-common.sh"
 
-ENV_FILE="${BIQ_BACKUP_ENV:-/var/www/beleggeriq/shared/.env.backup}"
+ENV_FILE="${BIQ_BACKUP_ENV:-/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup}"
 biq_load_env "$ENV_FILE"
 biq_require_backup_tools
 

@@ -11,7 +11,7 @@
 #    "ERROR" zodat automation alerts kan filteren op `severity=ERROR`.
 #  - Geen `eval` op user-input. Geen `bash -c "$x"`. Geen URL-leak in logs.
 #
-# Vereiste env (uit /var/www/beleggeriq/shared/.env.backup):
+# Vereiste env (uit /mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup):
 #   DATABASE_URL                  postgres://user:pass@host:5432/db
 #   BACKUP_S3_ENDPOINT            https://s3.eu-central-003.backblazeb2.com
 #   BACKUP_S3_BUCKET              biq-backups
@@ -21,7 +21,7 @@
 #   BACKUP_ENCRYPTION             age|gpg     (default: age)
 #   BACKUP_AGE_RECIPIENT          age1xxx…    (vereist als ENCRYPTION=age)
 #   BACKUP_GPG_RECIPIENT          0xKEYID     (vereist als ENCRYPTION=gpg)
-#   BACKUP_STATUS_FILE            /var/www/beleggeriq/shared/backup-status.json
+#   BACKUP_STATUS_FILE            /mnt/HC_Volume_105455257/apps/beleggeriq/shared/backup-status.json
 #   BACKUP_RETENTION_DAILY        default 7
 #   BACKUP_RETENTION_WEEKLY       default 4
 #   BACKUP_RETENTION_MONTHLY      default 12
@@ -66,7 +66,7 @@ biq_die() {
 # ============================================================
 
 biq_load_env() {
-    local env_file="${1:-/var/www/beleggeriq/shared/.env.backup}"
+    local env_file="${1:-/mnt/HC_Volume_105455257/apps/beleggeriq/shared/.env.backup}"
     if [ ! -f "$env_file" ]; then
         biq_die env_missing path "$env_file"
     fi
@@ -84,7 +84,7 @@ biq_load_env() {
     BACKUP_RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
     BACKUP_RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
     BACKUP_RETENTION_MONTHLY="${BACKUP_RETENTION_MONTHLY:-12}"
-    BACKUP_STATUS_FILE="${BACKUP_STATUS_FILE:-/var/www/beleggeriq/shared/backup-status.json}"
+    BACKUP_STATUS_FILE="${BACKUP_STATUS_FILE:-/mnt/HC_Volume_105455257/apps/beleggeriq/shared/backup-status.json}"
 
     case "$BACKUP_ENCRYPTION" in
         age) : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT vereist bij age}" ;;
