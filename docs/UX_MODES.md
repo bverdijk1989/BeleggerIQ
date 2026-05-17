@@ -1,8 +1,36 @@
-# UX Modes — Module 8
+# UX Modes — Module 4 / Module 8
 
 Drie modi die de UI-densiteit per gebruiker sturen — Beginner / Focus / Expert. Default = **FOCUS** (minimaal-maar-bruikbaar voor iedereen). Schakel in `/profiel` over naar een andere modus.
 
 > **Doel**: minder dashboard-chaos, meer rust, duidelijke hiërarchie. Een gewone belegger ziet doelen + score + risico; een expert zit nog steeds in de volledige analytics.
+
+## 0. Module 4 spec-mapping
+
+| Module 4 spec-eis | Implementatie |
+|---|---|
+| 3 modi met user-setting in profiel | `UserProfile.uxMode` (Prisma) + `setUxModeAction` + `UxModeSelector` op `/profiel` |
+| Simpele uitleg in Beginner | `showEducationalMicrocopy: true` + `getMicrocopy(section, "BEGINNER")` |
+| Weinig grafieken in Beginner | `showHistoryCharts: false`, `showMacroRegime: false`, `showConfidenceSummary: false` |
+| Focus op doelen/score/risico in Beginner | `showGoals: true`, `showHealthScoreCard: true`, `showBehavioralCoach: true` |
+| Geen complexe factor-tabellen in Beginner | `showConfidenceSummary: false`, `showAllocationPreview: false` |
+| AI briefing in Focus | `showBriefing: true` |
+| Portfolio Health Score in Focus | `showHealthScoreCard: true` |
+| Top risico in Focus | `showRiskActions: true` |
+| Maandactie in Focus | `showMacroRegime: true` (context); plus `/maandbeslissing` zichtbaar in nav |
+| Alerts in Focus | `/alerts` in `FOCUS_ROUTES` + notification-bell in TopBar |
+| Volledige analytics in Expert | `showAllocationPreview/showScenarioSnapshot/showAiExplain` allemaal `true` |
+| Factor breakdowns in Expert | `/score/[ticker]` + `showConfidenceSummary` |
+| Backtesting in Expert | `/backtest` + `/strategy-lab` zichtbaar in nav |
+| Macroregime in Expert | `showMacroRegime: true` + `/macro` route |
+| Risk analytics in Expert | `showRiskActions: true` + `showDeepDive: true` + `/risico` |
+| Signal details in Expert | `showAiExplain: true` + `showConfidenceSummary: true` |
+| Bestaande routes behouden | Routes worden FILTERED in sidebar, niet verwijderd. Direct-URL-toegang werkt voor alle tiers (UI-densiteit-keuze, geen permission-laag) |
+| Premium dark-first stijl | Geen styling-wijziging; bestaande shadcn/Tailwind |
+| Upgrade-CTA subtiel | `ModeHintBanner` op dashboard in FOCUS-mode (uitnodiging naar EXPERT); BEGINNER heeft eigen educatieve banner |
+| Mobiele optimalisatie | MobileNav filter via `getVisibleNavRoutes(mode)` — zelfde route-filter als sidebar |
+| Tests per mode | 27 tests in `visibility.test.ts` incl. 8 Module 4 spec-mapping tests |
+
+> **Belegger-lens-validatie**: Buffett (eenvoud in BEGINNER), Dalio (expert-laag blijft beschikbaar via EXPERT), Lynch (beginner begrijpt het door microcopy + spreektaal), Simons (data blijft beschikbaar via direct-URL ongeacht modus), Wood (modern AI-first via FOCUS-default + ModeHintBanner).
 
 ---
 

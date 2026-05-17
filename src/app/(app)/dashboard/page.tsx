@@ -58,6 +58,7 @@ import { loadPortfolioHealthScore } from "@/lib/analytics/health-score";
 import { loadMacroRegimeReport } from "@/lib/analytics/macro-regime";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
 import { ConfidenceSummaryCard } from "@/components/signal-fusion/confidence-summary-card";
+import { ModeHintBanner } from "@/components/ux-mode/mode-hint-banner";
 import {
   DEFAULT_UX_MODE,
   getDashboardVisibility,
@@ -818,6 +819,12 @@ export default async function DashboardPage({
           </p>
         </div>
       )}
+
+      {/* Module 4: ModeHintBanner toont alleen in FOCUS-mode (uitnodiging
+          naar EXPERT). BEGINNER heeft eigen banner hierboven; EXPERT
+          heeft geen hogere modus dus geen banner. */}
+      <ModeHintBanner mode={uxMode} />
+
 
       {ui.showBriefing && (
         <Section

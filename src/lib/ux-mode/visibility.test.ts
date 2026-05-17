@@ -160,3 +160,91 @@ describe("getMicrocopy", () => {
     expect(getMicrocopy("health", undefined)).toBe("");
   });
 });
+
+// ============================================================
+//  Module 4 spec-conformiteit — expliciete mapping spec → flags
+// ============================================================
+
+describe("Module 4 spec-conformiteit", () => {
+  it("BEGINNER: simpele uitleg + educatieve microcopy + focus doelen/score/risico", () => {
+    const v = getDashboardVisibility("BEGINNER");
+    // Spec: educatieve microcopy
+    expect(v.showEducationalMicrocopy).toBe(true);
+    // Spec: focus op doelen + score + risico
+    expect(v.showGoals).toBe(true);
+    expect(v.showHealthScoreCard).toBe(true);
+    expect(v.showBehavioralCoach).toBe(true);
+    // Spec: geen complexe factor-tabellen standaard
+    expect(v.showConfidenceSummary).toBe(false);
+    // Spec: weinig grafieken
+    expect(v.showHistoryCharts).toBe(false);
+    expect(v.showMacroRegime).toBe(false);
+  });
+
+  it("FOCUS: AI briefing + Health + top risico + maandactie", () => {
+    const v = getDashboardVisibility("FOCUS");
+    // Spec onderdelen
+    expect(v.showBriefing).toBe(true);
+    expect(v.showHealthScoreCard).toBe(true);
+    expect(v.showRiskActions).toBe(true);
+    expect(v.showMacroRegime).toBe(true); // maandactie-context
+    // Niet alle expert-secties
+    expect(v.showConfidenceSummary).toBe(false);
+    expect(v.showDeepDive).toBe(false);
+    expect(v.showEducationalMicrocopy).toBe(false);
+  });
+
+  it("EXPERT: volledige analytics, factor breakdowns, backtesting, macro, risk, signal details", () => {
+    const v = getDashboardVisibility("EXPERT");
+    expect(v.showAllocationPreview).toBe(true);
+    expect(v.showScenarioSnapshot).toBe(true);
+    expect(v.showAiExplain).toBe(true);
+    expect(v.showMacroRegime).toBe(true);
+    expect(v.showConfidenceSummary).toBe(true);
+    expect(v.showDecisionHistory).toBe(true);
+    expect(v.showDeepDive).toBe(true);
+    expect(v.showBusinessQuality).toBe(true);
+    expect(v.showNetReturn).toBe(true);
+    expect(v.showHistoryCharts).toBe(true);
+    expect(v.showEducationalMicrocopy).toBe(false);
+  });
+
+  it("Routes: BEGINNER mist analytische routes", () => {
+    expect(isRouteVisibleInMode("/macro", "BEGINNER")).toBe(false);
+    expect(isRouteVisibleInMode("/backtest", "BEGINNER")).toBe(false);
+    expect(isRouteVisibleInMode("/strategy-lab", "BEGINNER")).toBe(false);
+    expect(isRouteVisibleInMode("/screener", "BEGINNER")).toBe(false);
+    // Wel: doelen, health, coach (spec-kern)
+    expect(isRouteVisibleInMode("/doelen", "BEGINNER")).toBe(true);
+    expect(isRouteVisibleInMode("/portfolio-health", "BEGINNER")).toBe(true);
+    expect(isRouteVisibleInMode("/coach", "BEGINNER")).toBe(true);
+  });
+
+  it("Routes: FOCUS heeft maandactie + macro, geen expert-routes", () => {
+    expect(isRouteVisibleInMode("/maandbeslissing", "FOCUS")).toBe(true);
+    expect(isRouteVisibleInMode("/macro", "FOCUS")).toBe(true);
+    expect(isRouteVisibleInMode("/strategy-lab", "FOCUS")).toBe(false);
+    expect(isRouteVisibleInMode("/backtest", "FOCUS")).toBe(false);
+  });
+
+  it("Routes: EXPERT toont alles", () => {
+    expect(isRouteVisibleInMode("/strategy-lab", "EXPERT")).toBe(true);
+    expect(isRouteVisibleInMode("/backtest", "EXPERT")).toBe(true);
+    expect(isRouteVisibleInMode("/screener", "EXPERT")).toBe(true);
+    expect(isRouteVisibleInMode("/macro", "EXPERT")).toBe(true);
+  });
+
+  it("EXPERT toont strikt ⊇ FOCUS (geen flag wel in FOCUS maar niet in EXPERT)", () => {
+    const focus = getDashboardVisibility("FOCUS");
+    const expert = getDashboardVisibility("EXPERT");
+    const keys = Object.keys(focus) as Array<keyof typeof focus>;
+    for (const key of keys) {
+      if (key === "showEducationalMicrocopy") continue;
+      if (focus[key]) expect(expert[key]).toBe(true);
+    }
+  });
+
+  it("DEFAULT_UX_MODE is FOCUS (spec: 'minimaal-maar-bruikbaar')", () => {
+    expect(DEFAULT_UX_MODE).toBe("FOCUS");
+  });
+});
