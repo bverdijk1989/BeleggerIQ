@@ -8,6 +8,7 @@
 export {
   BEHAVIORAL_LABELS,
   BEHAVIORAL_SEVERITY_RANK,
+  toUiSeverity,
   type BehavioralReflectionQuestion,
   type BehavioralReport,
   type BehavioralSeverity,
@@ -15,6 +16,7 @@ export {
   type BehavioralSignalKey,
   type BehavioralSignalWithState,
   type BehavioralStatus,
+  type BehavioralUiSeverity,
   type BehavioralWarningState,
 } from "./types";
 export type {
@@ -32,8 +34,10 @@ export {
   detectOvertrading,
   detectPanicSelling,
   detectPerformanceChasing,
+  detectSpeculativeOverallocation,
   detectStrategyDrift,
   detectUnderDiversification,
+  detectVolatilityMismatch,
   ALL_DETECTORS,
 } from "./detectors";
 export {

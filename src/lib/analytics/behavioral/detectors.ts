@@ -631,6 +631,154 @@ export function detectPerformanceChasing(
 }
 
 // ============================================================
+//  9. Volatility mismatch — portfolio-vol vs profile-risk
+// ============================================================
+
+const VOL_MISMATCH_REFLECTION: BehavioralReflectionQuestion[] = [
+  {
+    key: "vol_horizon",
+    question:
+      "Past de huidige volatiliteit bij hoe lang je dit geld nog niet nodig hebt?",
+    hint: "Lange horizon = drawdowns zijn beter te dragen; korte horizon = hoge vol kan onverwacht pijnlijk uitpakken bij opname.",
+  },
+  {
+    key: "vol_sleeptest",
+    question:
+      "Slaap je rustig bij een tijdelijke drawdown van 30–40% op de huidige volatiliteit?",
+    hint: "Als het antwoord nee is, is de afstand tussen profiel en portefeuille meestal te groot.",
+  },
+];
+
+/**
+ * Drempels — portfolio-volatility per risk-tolerance.
+ * Geannualiseerde standaarddeviatie (fractie).
+ */
+const VOL_PROFILE_CEILING: Record<string, number> = {
+  CONSERVATIVE: 0.10,
+  BALANCED: 0.18,
+  GROWTH: 0.25,
+  AGGRESSIVE: 0.40,
+};
+
+export function detectVolatilityMismatch(
+  input: BehavioralDetectorInput,
+): DetectorResult {
+  const vol = input.portfolioVolatility;
+  if (typeof vol !== "number" || !Number.isFinite(vol)) {
+    return { signals: [], skipReason: "no-volatility-data" };
+  }
+  const tolerance = input.profile?.riskTolerance ?? "BALANCED";
+  const ceiling = VOL_PROFILE_CEILING[tolerance] ?? 0.18;
+  if (vol <= ceiling) return { signals: [] };
+
+  const overshoot = vol - ceiling;
+  let severity: BehavioralSeverity = "moderate";
+  if (overshoot >= 0.15) severity = "high";
+  else if (overshoot >= 0.08) severity = "elevated";
+
+  return {
+    signals: [
+      makeSignal(
+        {
+          id: `VOLATILITY_MISMATCH:${tolerance}`,
+          key: "VOLATILITY_MISMATCH",
+          severity,
+          title: `Volatiliteit ${pct(vol)} ligt boven je ${tolerance.toLowerCase()}-profiel`,
+          message: `Je portefeuille beweegt sterker dan past bij een ${tolerance.toLowerCase()}-profiel (richtlijn maximum ${pct(ceiling)}). Dat hoeft geen probleem te zijn als je bewust meer risico neemt, maar het maakt drawdowns scherper.`,
+          metric: vol,
+          threshold: ceiling,
+          reflectionQuestions: VOL_MISMATCH_REFLECTION,
+          nextStep:
+            "Overweeg of je je profiel wilt bijstellen, of een deel te shiften naar minder-volatiele componenten (bonds, defensieve ETF's).",
+          sourceEngines: ["risk-engine", "user-profile"],
+        },
+        input.asOf,
+      ),
+    ],
+  };
+}
+
+// ============================================================
+//  10. Speculative overallocation — crypto/commodity asset-class share
+// ============================================================
+
+const SPEC_REFLECTION: BehavioralReflectionQuestion[] = [
+  {
+    key: "spec_thesis",
+    question:
+      "Heb je een expliciete thesis voor het speculatieve deel, of is het een 'misschien-wordt-het-veel'-gok?",
+    hint: "Speculatieve allocatie zonder thesis is een gokje, geen beleggingsbeslissing.",
+  },
+  {
+    key: "spec_loss_tolerance",
+    question:
+      "Kun je een verlies van 50–70% op dit deel dragen zonder dat je gedwongen wordt te verkopen?",
+    hint: "Speculatieve activa kunnen jaren onder water blijven; de allocatie moet daarmee passen.",
+  },
+];
+
+const SPECULATIVE_ASSET_CLASSES = new Set(["CRYPTO", "COMMODITY"]);
+
+const SPECULATIVE_TIERS: ReadonlyArray<{
+  weight: number;
+  severity: BehavioralSeverity;
+}> = [
+  { weight: 0.30, severity: "high" },
+  { weight: 0.15, severity: "elevated" },
+  { weight: 0.08, severity: "moderate" },
+];
+
+export function detectSpeculativeOverallocation(
+  input: BehavioralDetectorInput,
+): DetectorResult {
+  if (input.positions.length === 0) {
+    return { signals: [], skipReason: "no-positions" };
+  }
+  // Som alleen posities met expliciete asset-class. Wanneer NIEMAND
+  // assetClass heeft, kan de detector niet beoordelen.
+  const hasAnyAssetClass = input.positions.some(
+    (p) => typeof p.assetClass === "string" && p.assetClass.length > 0,
+  );
+  if (!hasAnyAssetClass) {
+    return { signals: [], skipReason: "no-asset-class-data" };
+  }
+  const speculativeWeight = input.positions
+    .filter(
+      (p) =>
+        typeof p.assetClass === "string" &&
+        SPECULATIVE_ASSET_CLASSES.has(p.assetClass.toUpperCase()),
+    )
+    .reduce((sum, p) => sum + p.weight, 0);
+
+  if (speculativeWeight <= 0) {
+    return { signals: [] };
+  }
+  const tier = SPECULATIVE_TIERS.find((t) => speculativeWeight >= t.weight);
+  if (!tier) return { signals: [] };
+
+  return {
+    signals: [
+      makeSignal(
+        {
+          id: "SPECULATIVE_OVERALLOCATION:GLOBAL",
+          key: "SPECULATIVE_OVERALLOCATION",
+          severity: tier.severity,
+          title: `Speculatieve activa zijn ${pct(speculativeWeight)} van je portefeuille`,
+          message: `Crypto + commodities samen wegen ${pct(speculativeWeight)}. Deze categorie heeft historisch grotere drawdowns en lange-droogteperiodes dan aandelen of obligaties.`,
+          metric: speculativeWeight,
+          threshold: tier.weight,
+          reflectionQuestions: SPEC_REFLECTION,
+          nextStep:
+            "Veel langetermijnbeleggers houden speculatieve activa onder 5–10% van het totaal — een bewuste keuze daarboven kan, maar wel met een thesis.",
+          sourceEngines: ["portfolio-view"],
+        },
+        input.asOf,
+      ),
+    ],
+  };
+}
+
+// ============================================================
 //  Public registry — engine.ts roept deze in volgorde aan.
 // ============================================================
 
@@ -646,4 +794,6 @@ export const ALL_DETECTORS: ReadonlyArray<{
   { key: "UNDER_DIVERSIFICATION", detect: detectUnderDiversification },
   { key: "CASH_MISMATCH", detect: detectCashMismatch },
   { key: "PERFORMANCE_CHASING", detect: detectPerformanceChasing },
+  { key: "VOLATILITY_MISMATCH", detect: detectVolatilityMismatch },
+  { key: "SPECULATIVE_OVERALLOCATION", detect: detectSpeculativeOverallocation },
 ];

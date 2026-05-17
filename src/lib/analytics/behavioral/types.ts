@@ -14,7 +14,7 @@
 
 import type { ISODateString } from "@/types/common";
 
-/** 8 gedragspatronen die we detecteren. */
+/** 10 gedragspatronen die we detecteren (Module 3 spec-aligned). */
 export type BehavioralSignalKey =
   | "OVERCONCENTRATION"
   | "OVERTRADING"
@@ -23,10 +23,31 @@ export type BehavioralSignalKey =
   | "STRATEGY_DRIFT"
   | "UNDER_DIVERSIFICATION"
   | "CASH_MISMATCH"
-  | "PERFORMANCE_CHASING";
+  | "PERFORMANCE_CHASING"
+  | "VOLATILITY_MISMATCH"
+  | "SPECULATIVE_OVERALLOCATION";
 
 /** Severity-tiers (consistent met risk-engine voor UI-kleur reuse). */
 export type BehavioralSeverity = "low" | "moderate" | "elevated" | "high";
+
+/**
+ * UI-triad: Module 3 spec eist `info`/`warning`/`critical`. We mappen
+ * onze 4-stap interne severity hierop voor coaching-cards. Mapping:
+ *  - `low` → `info`
+ *  - `moderate` → `warning`
+ *  - `elevated`/`high` → `critical`
+ *
+ * Pure functie, idempotent, geen state.
+ */
+export type BehavioralUiSeverity = "info" | "warning" | "critical";
+
+export function toUiSeverity(
+  severity: BehavioralSeverity,
+): BehavioralUiSeverity {
+  if (severity === "low") return "info";
+  if (severity === "moderate") return "warning";
+  return "critical";
+}
 
 /** Status: actief tonen, gebruiker negeerde 'em, of snooze tot datum. */
 export type BehavioralStatus = "ACTIVE" | "DISMISSED" | "SNOOZED";
@@ -124,6 +145,8 @@ export const BEHAVIORAL_LABELS: Record<BehavioralSignalKey, string> = {
   UNDER_DIVERSIFICATION: "Beperkte spreiding",
   CASH_MISMATCH: "Cash-balans uit balans",
   PERFORMANCE_CHASING: "Performance chasing",
+  VOLATILITY_MISMATCH: "Volatiliteit boven je profiel",
+  SPECULATIVE_OVERALLOCATION: "Speculatieve overallocatie",
 };
 
 export const BEHAVIORAL_SEVERITY_RANK: Record<BehavioralSeverity, number> = {

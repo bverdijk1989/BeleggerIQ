@@ -146,6 +146,7 @@ export async function loadBehavioralCoach(
       marketValueBase: v.marketValueBase,
       weight,
       pnlPct,
+      assetClass: v.holding.assetClass ?? null,
     };
   });
 
@@ -175,6 +176,7 @@ export async function loadBehavioralCoach(
     sectorExposure,
     recentTransactions,
     profile,
+    portfolioVolatility: view.risk.portfolioVolatility ?? null,
   };
 
   const report = runBehavioralEngine(detectorInput);

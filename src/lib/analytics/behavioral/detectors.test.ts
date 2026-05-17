@@ -7,10 +7,13 @@ import {
   detectOvertrading,
   detectPanicSelling,
   detectPerformanceChasing,
+  detectSpeculativeOverallocation,
   detectStrategyDrift,
   detectUnderDiversification,
+  detectVolatilityMismatch,
 } from "./detectors";
 import { makeDetectorInput, makeTransaction } from "./fixtures";
+import { toUiSeverity } from "./types";
 
 describe("detectOverconcentration", () => {
   it("positie ≥ 15% → moderate signal", () => {
@@ -533,5 +536,249 @@ describe("detectPerformanceChasing", () => {
       }),
     );
     expect(result.signals).toHaveLength(1);
+  });
+});
+
+// ============================================================
+//  Module 3: VOLATILITY_MISMATCH
+// ============================================================
+
+describe("detectVolatilityMismatch", () => {
+  it("skip wanneer portfolioVolatility ontbreekt", () => {
+    const r = detectVolatilityMismatch(
+      makeDetectorInput({ portfolioVolatility: null }),
+    );
+    expect(r.skipReason).toBe("no-volatility-data");
+    expect(r.signals).toHaveLength(0);
+  });
+
+  it("BALANCED + vol 0.15 → onder plafond, geen signaal", () => {
+    const r = detectVolatilityMismatch(
+      makeDetectorInput({
+        portfolioVolatility: 0.15,
+        profile: {
+          objective: "BALANCED",
+          riskTolerance: "BALANCED",
+          investmentHorizonYrs: 10,
+          cashBufferPct: null,
+          maxCashShare: null,
+          maxPositionWeight: null,
+        },
+      }),
+    );
+    expect(r.signals).toHaveLength(0);
+  });
+
+  it("CONSERVATIVE + vol 0.22 → high (overshoot 0.12)", () => {
+    const r = detectVolatilityMismatch(
+      makeDetectorInput({
+        portfolioVolatility: 0.22,
+        profile: {
+          objective: "BALANCED",
+          riskTolerance: "CONSERVATIVE",
+          investmentHorizonYrs: 10,
+          cashBufferPct: null,
+          maxCashShare: null,
+          maxPositionWeight: null,
+        },
+      }),
+    );
+    expect(r.signals).toHaveLength(1);
+    expect(r.signals[0]?.severity).toBe("elevated");
+    expect(r.signals[0]?.message).toMatch(/conservative/i);
+  });
+
+  it("AGGRESSIVE + vol 0.60 → high (ver overschrijdt)", () => {
+    const r = detectVolatilityMismatch(
+      makeDetectorInput({
+        portfolioVolatility: 0.60,
+        profile: {
+          objective: "GROWTH",
+          riskTolerance: "AGGRESSIVE",
+          investmentHorizonYrs: 20,
+          cashBufferPct: null,
+          maxCashShare: null,
+          maxPositionWeight: null,
+        },
+      }),
+    );
+    expect(r.signals).toHaveLength(1);
+    expect(r.signals[0]?.severity).toBe("high");
+  });
+
+  it("zonder profile → fallback BALANCED-plafond (0.18)", () => {
+    const r = detectVolatilityMismatch(
+      makeDetectorInput({
+        portfolioVolatility: 0.30,
+        profile: null,
+      }),
+    );
+    expect(r.signals).toHaveLength(1);
+  });
+});
+
+// ============================================================
+//  Module 3: SPECULATIVE_OVERALLOCATION
+// ============================================================
+
+describe("detectSpeculativeOverallocation", () => {
+  it("skip wanneer geen enkele position assetClass heeft", () => {
+    const r = detectSpeculativeOverallocation(
+      makeDetectorInput({
+        positions: [
+          {
+            ticker: "X",
+            name: "X",
+            sector: "T",
+            marketValueBase: 1000,
+            weight: 1.0,
+            pnlPct: 0,
+          },
+        ],
+      }),
+    );
+    expect(r.skipReason).toBe("no-asset-class-data");
+  });
+
+  it("alleen EQUITY/BOND → geen signaal", () => {
+    const r = detectSpeculativeOverallocation(
+      makeDetectorInput({
+        positions: [
+          {
+            ticker: "X",
+            name: "X",
+            sector: "T",
+            marketValueBase: 1000,
+            weight: 0.5,
+            pnlPct: 0,
+            assetClass: "EQUITY",
+          },
+          {
+            ticker: "Y",
+            name: "Y",
+            sector: "F",
+            marketValueBase: 1000,
+            weight: 0.5,
+            pnlPct: 0,
+            assetClass: "BOND",
+          },
+        ],
+      }),
+    );
+    expect(r.signals).toHaveLength(0);
+  });
+
+  it("CRYPTO 10% → moderate (boven 8% drempel)", () => {
+    const r = detectSpeculativeOverallocation(
+      makeDetectorInput({
+        positions: [
+          {
+            ticker: "BTC",
+            name: "Bitcoin",
+            sector: null,
+            marketValueBase: 100,
+            weight: 0.10,
+            pnlPct: 0,
+            assetClass: "CRYPTO",
+          },
+          {
+            ticker: "ASML",
+            name: "ASML",
+            sector: "T",
+            marketValueBase: 900,
+            weight: 0.90,
+            pnlPct: 0,
+            assetClass: "EQUITY",
+          },
+        ],
+      }),
+    );
+    expect(r.signals).toHaveLength(1);
+    expect(r.signals[0]?.severity).toBe("moderate");
+  });
+
+  it("CRYPTO + COMMODITY samen 35% → high (boven 30% drempel)", () => {
+    const r = detectSpeculativeOverallocation(
+      makeDetectorInput({
+        positions: [
+          {
+            ticker: "BTC",
+            name: "Bitcoin",
+            sector: null,
+            marketValueBase: 200,
+            weight: 0.20,
+            pnlPct: 0,
+            assetClass: "CRYPTO",
+          },
+          {
+            ticker: "GLD",
+            name: "Gold",
+            sector: null,
+            marketValueBase: 150,
+            weight: 0.15,
+            pnlPct: 0,
+            assetClass: "COMMODITY",
+          },
+          {
+            ticker: "ASML",
+            name: "ASML",
+            sector: "T",
+            marketValueBase: 650,
+            weight: 0.65,
+            pnlPct: 0,
+            assetClass: "EQUITY",
+          },
+        ],
+      }),
+    );
+    expect(r.signals).toHaveLength(1);
+    expect(r.signals[0]?.severity).toBe("high");
+  });
+
+  it("speculative-weight 5% → onder drempel, geen signaal", () => {
+    const r = detectSpeculativeOverallocation(
+      makeDetectorInput({
+        positions: [
+          {
+            ticker: "BTC",
+            name: "Bitcoin",
+            sector: null,
+            marketValueBase: 50,
+            weight: 0.05,
+            pnlPct: 0,
+            assetClass: "CRYPTO",
+          },
+          {
+            ticker: "ASML",
+            name: "ASML",
+            sector: "T",
+            marketValueBase: 950,
+            weight: 0.95,
+            pnlPct: 0,
+            assetClass: "EQUITY",
+          },
+        ],
+      }),
+    );
+    expect(r.signals).toHaveLength(0);
+  });
+});
+
+// ============================================================
+//  Module 3: severity-triad-helper voor UI
+// ============================================================
+
+describe("toUiSeverity (info/warning/critical mapping)", () => {
+  it("low → info", () => {
+    expect(toUiSeverity("low")).toBe("info");
+  });
+  it("moderate → warning", () => {
+    expect(toUiSeverity("moderate")).toBe("warning");
+  });
+  it("elevated → critical", () => {
+    expect(toUiSeverity("elevated")).toBe("critical");
+  });
+  it("high → critical", () => {
+    expect(toUiSeverity("high")).toBe("critical");
   });
 });

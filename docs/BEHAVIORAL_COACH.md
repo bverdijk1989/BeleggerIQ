@@ -1,16 +1,16 @@
 # Behavioral Finance Coach — Module 3
 
-Een coachende laag die 8 gedragspatronen meet in je portefeuille en transactiehistorie. Stelt **reflectievragen**, geeft **geen koop/verkoop-advies**. De toon is uitnodigend (Lynch-laag), de drempels zijn meetbaar (Simons-laag), het risico is expliciet (Dalio-laag), de horizon is lange termijn (Buffett-laag).
+Een coachende laag die 10 gedragspatronen meet in je portefeuille en transactiehistorie. Stelt **reflectievragen**, geeft **geen koop/verkoop-advies**. De toon is uitnodigend (Lynch-laag), de drempels zijn meetbaar (Simons-laag), het risico is expliciet (Dalio-laag), de horizon is lange termijn (Buffett-laag).
 
 > **Toon-norm**: NOOIT "je hebt fout gehandeld". WEL "je portefeuille wijkt nu af van je strategie — wil je deze keuze bewust maken?".
 
 ---
 
-## 1. De 8 patronen
+## 1. De 10 patronen
 
 | # | Key | Detectie | Default-drempel |
 |---|---|---|---|
-| 1 | `OVERCONCENTRATION` | Position-weight ≥ 10% of sector ≥ 35% | 15% / 35% |
+| 1 | `OVERCONCENTRATION` | Position-weight ≥ 10% **of** sector ≥ 35% (combineert spec #1 + #2) | 15% / 35% |
 | 2 | `OVERTRADING` | # BUY/SELL trades in 30d | ≥ 8 |
 | 3 | `PANIC_SELLING` | SELL waar prijs in 7d ervoor ≤ -8% daalde | -8% / -15% |
 | 4 | `FOMO_BUYING` | BUY waar prijs in 30d ervoor ≥ +15% steeg | +15% / +30% |
@@ -18,13 +18,36 @@ Een coachende laag die 8 gedragspatronen meet in je portefeuille en transactiehi
 | 6 | `UNDER_DIVERSIFICATION` | positionCount < 8 (Markowitz-floor) | 8 |
 | 7 | `CASH_MISMATCH` | Cash > maxCashShare (drag) of < cashBufferPct × 0.4 (no buffer) | policy-driven |
 | 8 | `PERFORMANCE_CHASING` | BUY in positie die ≥ +40% PnL toont | +40% / +80% |
+| 9 | `VOLATILITY_MISMATCH` | Portfolio-volatility > profiel-plafond (CONSERV 10%, BAL 18%, GROWTH 25%, AGGR 40%) | profile-driven |
+| 10 | `SPECULATIVE_OVERALLOCATION` | Crypto + commodity samen ≥ 8% / 15% / 30% | 8% / 15% / 30% |
+
+**Module 3 spec-mapping**:
+- Spec #1 "overconcentratie aandeel" → `OVERCONCENTRATION` (position-weight tak)
+- Spec #2 "overconcentratie sector" → `OVERCONCENTRATION` (sector-weight tak)
+- Spec #3-7 → directe match (zie tabel)
+- Spec #8 "volatiliteit t.o.v. doel" → `VOLATILITY_MISMATCH` ✅
+- Spec #9 "cashbuffer" → `CASH_MISMATCH` ✅
+- Spec #10 "crypto/speculatief" → `SPECULATIVE_OVERALLOCATION` ✅
 
 Elk patroon levert een `BehavioralSignal` met:
-- `severity`: low / moderate / elevated / high
+- `severity`: low / moderate / elevated / high (4-stap intern)
 - `title` + `message` (coachende tekst)
 - `metric` + `threshold` (audit + transparantie)
 - 1–3 `reflectionQuestions` met optionele hint
 - `nextStep` — geen advies, wel een prikkel
+
+### Severity-triad voor UI (Module 3 spec)
+
+Spec vraagt `info` / `warning` / `critical` (3-stap). Mapping via `toUiSeverity()` helper:
+
+| Intern (4-stap) | UI (3-stap, spec) |
+|---|---|
+| `low` | `info` |
+| `moderate` | `warning` |
+| `elevated` | `critical` |
+| `high` | `critical` |
+
+Pure functie, idempotent, geen state. UI-componenten lezen `toUiSeverity(signal.severity)` voor kleurkeuze; analytics/audit-trail blijft het 4-stap interne tier gebruiken voor scherpere ordening.
 
 ---
 

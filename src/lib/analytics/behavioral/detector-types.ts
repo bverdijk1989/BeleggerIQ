@@ -20,6 +20,12 @@ export interface BehavioralPosition {
   weight: number;
   /** P&L sinds aankoop, fractie. */
   pnlPct: number;
+  /**
+   * Asset-class label uit Prisma — bv. EQUITY / ETF / BOND / REIT /
+   * COMMODITY / CRYPTO / CASH. Optioneel zodat fixtures backward-compatible
+   * blijven. Gebruikt door SPECULATIVE_OVERALLOCATION-detector.
+   */
+  assetClass?: string | null;
 }
 
 export interface BehavioralSectorExposure {
@@ -87,4 +93,12 @@ export interface BehavioralDetectorInput {
 
   /** Originele streefweegingen uit allocation-plan (voor strategy-drift). */
   targetWeightsByTicker?: Map<string, number>;
+
+  /**
+   * Geannualiseerde portfolio-volatility uit risk-engine (fractie, bv. 0.18).
+   * Optioneel: null wanneer geen historie beschikbaar. Gebruikt door
+   * VOLATILITY_MISMATCH-detector om portfolio-vol te vergelijken met
+   * profile.riskTolerance.
+   */
+  portfolioVolatility?: number | null;
 }
