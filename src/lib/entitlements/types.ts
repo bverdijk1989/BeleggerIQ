@@ -41,16 +41,23 @@ export type FeatureKey =
   | "signal_fusion.confidence_score"
   // AI Explainability (M7)
   | "ai.explainability"
+  // Watchlist Intelligence (M9)
+  | "watchlist.intelligence"
   // Scenario-analyse + tail-risk
+  | "scenario.basic"
   | "scenario.analysis"
-  // Premium alerts (notifications)
+  // Alerts
+  | "alerts.basic"
   | "alerts.premium"
+  // Crypto Risk Lab (M12)
+  | "crypto.lab"
   // Community Intelligence (M13)
   | "community.benchmark"
   // Advisor / Enterprise (toekomst)
   | "advisor.multi_client"
   | "advisor.export_reports"
-  | "advisor.white_label";
+  | "advisor.white_label"
+  | "advisor.team_roles";
 
 /**
  * Eén feature-definitie in de catalog.

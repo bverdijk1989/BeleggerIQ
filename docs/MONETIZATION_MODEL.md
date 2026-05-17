@@ -1,8 +1,8 @@
-# Monetization Architecture — Module 9
+# Monetization Model — Module 13
 
 Vier-tier model (FREE / PRO / ELITE / ADVISOR) met één centrale feature-catalog als bron-van-waarheid. Pricing wijzigen = één file aanpassen; geen scattered if-statements door de codebase.
 
-> **Filosofie**: AI-native premiumervaring (Wood-laag). Free is bewust waardevol; Pro maakt de Daily AI Briefing + Behavioral Coach beschikbaar; Elite zet de Signal Fusion + AI Explainability + scenario-analyse aan; Advisor is voorbereid maar nog niet actief verkocht.
+> **Filosofie**: AI-native premiumervaring (Wood-laag). Free is bewust waardevol; Pro maakt de Daily AI Briefing + Behavioral Coach + Watchlist Intelligence + basis scenario's + alerts beschikbaar; Elite zet de Signal Fusion + AI Explainability + volledige stress-tests + Crypto Lab + premium alerts aan; Advisor is voorbereid maar nog niet actief verkocht.
 
 ---
 
@@ -37,13 +37,28 @@ Prijs in `TIER_CATALOG` — wijzigen = één file aanpassen.
 | Analytics | Volledig macroregime | — | — | ✓ | ✓ |
 | Analytics | Investment Confidence Score | — | — | ✓ | ✓ |
 | AI | AI Explainability | — | — | ✓ | ✓ |
-| Analytics | Scenario-analyse | — | — | ✓ | ✓ |
+| Analytics | Watchlist Intelligence (M9) | — | ✓ | ✓ | ✓ |
+| Analytics | Basis scenario-analyse | — | ✓ | ✓ | ✓ |
+| Analytics | Volledige scenario- & tail-risk-analyse | — | — | ✓ | ✓ |
+| Alerts | Basis alerts | — | ✓ | ✓ | ✓ |
 | Alerts | Premium alerts | — | — | ✓ | ✓ |
+| Analytics | Crypto Risk Lab (M12) | — | — | ✓ | ✓ |
+| Analytics | Community benchmark | — | ✓ | ✓ | ✓ |
 | Advisor | Multi-client | — | — | — | ✓ |
 | Advisor | Export reports | — | — | — | ✓ |
 | Advisor | White-label | — | — | — | ✓ |
+| Advisor | Team-rollen | — | — | — | ✓ |
 
-19 features in totaal. Gestapeld? **Nee — expliciet** per tier. Een feature die uit ELITE wordt gehaald valt niet automatisch naar PRO terug.
+24 features in totaal. Gestapeld? **Nee — expliciet** per tier. Een feature die uit ELITE wordt gehaald valt niet automatisch naar PRO terug.
+
+### Module 13-spec mapping
+
+| Tier | Spec-onderdelen | Implementatie |
+|---|---|---|
+| **Free** | beperkte tracking, beperkte health, beperkte watchlist, beperkte AI briefing | `portfolio.tracking` limit 10, `health.basic`, `briefing.weekly` (watchlist-intelligence niet beschikbaar) |
+| **Pro** | volledige health, daily briefing, behavioral coach, watchlist intelligence, basis scenario's, alerts | `health.full` + `briefing.daily` + `behavioral.coach` + `watchlist.intelligence` + `scenario.basic` + `alerts.basic` |
+| **Elite** | signal fusion, geavanceerde macro, volledige stresstests, crypto lab, AI explainability overal, premium alerts | `signal_fusion.confidence_score` + `macro.full` + `scenario.analysis` + `crypto.lab` + `ai.explainability` + `alerts.premium` |
+| **Advisor** | multi-client dashboards, rapportages, white-label, teamrollen | `advisor.multi_client` + `advisor.export_reports` + `advisor.white_label` + `advisor.team_roles` (allemaal voorbereid, op aanvraag) |
 
 ---
 

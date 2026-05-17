@@ -9,6 +9,7 @@ import {
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
+import { PaywallCard } from "@/components/entitlements/paywall-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -29,6 +30,11 @@ import {
 } from "@/lib/analytics/crypto-lab";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import {
+  canUseFeature,
+  getFeature,
+  resolveCurrentTier,
+} from "@/lib/entitlements";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
@@ -56,6 +62,35 @@ export default async function CryptoLabPage() {
           description="Authenticatie vereist."
         />
         <EmptyState icon={ShieldAlert} title="Niet ingelogd" description={auth.error} />
+      </>
+    );
+  }
+
+  // Entitlement-check (Module 13): Crypto Risk Lab is ELITE+.
+  const tierResult = await resolveCurrentTier(auth.user.email);
+  const entitlement = canUseFeature(tierResult.tier, "crypto.lab", {
+    overrideActive: tierResult.overrideActive,
+  });
+  if (!entitlement.allowed) {
+    const feature = getFeature("crypto.lab")!;
+    return (
+      <>
+        <PageHeader
+          eyebrow="Lab"
+          title="Crypto Risk & Momentum Lab"
+          description="Speculation-meter voor BTC/ETH-exposure — meting + waarschuwing, geen koop-trigger."
+        />
+        <Section
+          title="Beschikbaar in Elite"
+          description="De Crypto Risk Lab is een gespecialiseerde tool die BTC/ETH-allocatie afzet tegen volatiliteit, drawdown en sizing-grenzen."
+        >
+          <PaywallCard
+            featureLabel={feature.label}
+            description={feature.description}
+            entitlement={entitlement}
+            bonusCopy="Niet als casino — als risico-laag. We tonen wat een 60-80% drawdown met je portfolio doet, met expliciete waarschuwingen i.p.v. koopadviezen."
+          />
+        </Section>
       </>
     );
   }

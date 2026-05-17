@@ -175,26 +175,67 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Watchlist Intelligence (M9)
+  // ============================================================
+  {
+    key: "watchlist.intelligence",
+    label: "Watchlist Intelligence",
+    description:
+      "Rijk signaal-pakket per watchlist-ticker — 10 signalen (waardering, momentum, volatiliteit, macro-fit, profiel-fit), alternatieven uit jouw universum, en intelligence-gedreven alerts.",
+    availableIn: ALL_PAID,
+    category: "analytics",
+  },
+
+  // ============================================================
   //  Scenario analysis
   // ============================================================
   {
+    key: "scenario.basic",
+    label: "Basis scenario-analyse",
+    description:
+      "Een set vooraf-gedefinieerde scenario's (recessie, marktcrash, sectorrotatie) met portfolio-impact.",
+    availableIn: ALL_PAID,
+    category: "analytics",
+  },
+  {
     key: "scenario.analysis",
-    label: "Scenario- & tail-risk-analyse",
-    description: "Stress-test je portefeuille tegen recessie, rente-shock, stagflatie en custom scenarios.",
+    label: "Volledige scenario- & tail-risk-analyse",
+    description:
+      "Alle 10 stress-scenarios + custom-builder + per-positie impact-breakdown + AI-uitleg.",
     availableIn: ELITE_AND_UP,
     category: "analytics",
   },
 
   // ============================================================
-  //  Premium alerts
+  //  Alerts (basis vs premium)
   // ============================================================
+  {
+    key: "alerts.basic",
+    label: "Basis alerts",
+    description:
+      "Notificaties op kerngebeurtenissen: Health Score-drop, concentratierisico, koersbewegingen, regime-shifts, dividend/earnings-events.",
+    availableIn: ALL_PAID,
+    category: "alerts",
+  },
   {
     key: "alerts.premium",
     label: "Premium alerts",
     description:
-      "Real-time notificaties over factor-drift, regime-shifts en behavioral red-flags op je portefeuille.",
+      "Geavanceerde notificaties: factor-drift, behavioral red-flags, watchlist-intelligence-signalen, valuation-triggers, lage-datakwaliteit.",
     availableIn: ELITE_AND_UP,
     category: "alerts",
+  },
+
+  // ============================================================
+  //  Crypto Risk Lab (M12)
+  // ============================================================
+  {
+    key: "crypto.lab",
+    label: "Crypto Risk & Momentum Lab",
+    description:
+      "Aparte lab-sectie voor BTC/ETH: allocatie-tier, volatiliteit, max-drawdown, momentum, trend-sterkte, position-sizing-warning en speculation-score.",
+    availableIn: ELITE_AND_UP,
+    category: "analytics",
   },
 
   // ============================================================
@@ -230,6 +271,14 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
     key: "advisor.white_label",
     label: "White-label",
     description: "Eigen huisstijl, eigen domein, eigen branding op de app.",
+    availableIn: ["ADVISOR"],
+    category: "advisor",
+  },
+  {
+    key: "advisor.team_roles",
+    label: "Team-rollen",
+    description:
+      "Meerdere gebruikers binnen één Advisor-account met aparte rollen (read-only, advisor, admin).",
     availableIn: ["ADVISOR"],
     category: "advisor",
   },
