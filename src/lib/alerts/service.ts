@@ -16,6 +16,7 @@ import {
   generateAiBriefingReadyAlerts,
   generateBehavioralAlerts,
   generateConcentrationAlerts,
+  generateDataQualityAlerts,
   generateDividendEventAlerts,
   generateEarningsEventAlerts,
   generateHealthDropAlerts,
@@ -26,6 +27,7 @@ import {
   type AiBriefingReadyInput,
   type BehavioralWarningInput,
   type ConcentrationRisingInput,
+  type DataQualityLowInput,
   type DividendEventInput,
   type EarningsEventInput,
   type HealthDropInput,
@@ -56,6 +58,7 @@ export interface AlertsRunInput {
   dividend?: Omit<DividendEventInput, "userId"> | null;
   watchlist?: Omit<WatchlistOpportunityInput, "userId"> | null;
   valuation?: Omit<ValuationSignalInput, "userId"> | null;
+  dataQuality?: Omit<DataQualityLowInput, "userId"> | null;
   briefing?: Omit<AiBriefingReadyInput, "userId"> | null;
 }
 
@@ -143,6 +146,14 @@ export function evaluateAlerts(
       ...generateValuationSignalAlerts({
         userId: input.userId,
         ...input.valuation,
+      }),
+    );
+  }
+  if (input.dataQuality) {
+    generated.push(
+      ...generateDataQualityAlerts({
+        userId: input.userId,
+        ...input.dataQuality,
       }),
     );
   }

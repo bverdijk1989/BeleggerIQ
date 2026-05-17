@@ -664,7 +664,90 @@ export function generateValuationSignalAlerts(
 }
 
 // ============================================================
-//  10. AI briefing ready
+//  10. Data quality low (Module 10)
+// ============================================================
+
+/**
+ * Een aggregatie van per-engine data-quality signals. Caller levert een
+ * eenvoudige plain shape — geen runtime-dep op @/lib/analytics.
+ */
+export interface DataQualityLowInput {
+  userId: string;
+  asOf: ISODateString;
+  /** Health-score data-quality, optioneel. Lage tier = signaal. */
+  healthDataQuality?: {
+    tier: "high" | "medium" | "low";
+    effectiveWeight: number;
+    coverageRatio: number;
+  } | null;
+  /** Aantal posities + hoeveel daarvan een confidence-score met
+   *  dataQuality 'low' of 'missing' hebben. */
+  confidenceCoverage?: {
+    totalPositions: number;
+    lowQualityPositions: number;
+  } | null;
+}
+
+const COVERAGE_LOW_THRESHOLD = 0.5; // <50% van de health-weight = ondergrens
+const CONFIDENCE_LOW_FRACTION = 0.4; // ≥40% posities met low/missing data
+
+export function generateDataQualityAlerts(
+  input: DataQualityLowInput,
+): AlertCandidate[] {
+  const out: AlertCandidate[] = [];
+  const day = isoDay(input.asOf);
+
+  // 1. Health-score data-quality drop tot 'low' tier.
+  const h = input.healthDataQuality;
+  if (h && (h.tier === "low" || h.effectiveWeight < COVERAGE_LOW_THRESHOLD)) {
+    out.push(
+      makeCandidate({
+        type: "DATA_QUALITY_LOW",
+        severity: "INFO",
+        dedupeKey: `DATA_QUALITY_LOW:${input.userId}:${day}:HEALTH`,
+        title: "Lage datakwaliteit op je Health Score",
+        body: `Slechts ${Math.round(h.effectiveWeight * 100)}% van het score-gewicht is op data gebaseerd (coverage ${Math.round(h.coverageRatio * 100)}%). Interpreteer met ruime onzekerheidsmarge — voeg waar mogelijk data toe.`,
+        link: "/portfolio-health",
+        context: {
+          source: "health",
+          tier: h.tier,
+          effectiveWeight: h.effectiveWeight,
+        },
+        occurredAt: input.asOf,
+      }),
+    );
+  }
+
+  // 2. Veel posities met lage confidence-data-quality.
+  const c = input.confidenceCoverage;
+  if (
+    c &&
+    c.totalPositions > 0 &&
+    c.lowQualityPositions / c.totalPositions >= CONFIDENCE_LOW_FRACTION
+  ) {
+    out.push(
+      makeCandidate({
+        type: "DATA_QUALITY_LOW",
+        severity: "INFO",
+        dedupeKey: `DATA_QUALITY_LOW:${input.userId}:${day}:CONFIDENCE`,
+        title: "Veel posities met beperkte signaal-coverage",
+        body: `${c.lowQualityPositions} van je ${c.totalPositions} posities heeft factor-/fundamentals-data die nog niet compleet is. De Investment Confidence Score leunt voor die posities op partial data.`,
+        link: "/score",
+        context: {
+          source: "confidence",
+          totalPositions: c.totalPositions,
+          lowQualityPositions: c.lowQualityPositions,
+        },
+        occurredAt: input.asOf,
+      }),
+    );
+  }
+
+  return out;
+}
+
+// ============================================================
+//  11. AI briefing ready
 // ============================================================
 
 export interface AiBriefingReadyInput {

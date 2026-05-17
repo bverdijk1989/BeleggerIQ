@@ -8,6 +8,7 @@ import {
   generateEarningsEventAlerts,
   generateHealthDropAlerts,
   generateMacroRegimeChangeAlerts,
+  generateDataQualityAlerts,
   generatePriceMoveAlerts,
   generateValuationSignalAlerts,
   generateWatchlistAlerts,
@@ -432,6 +433,89 @@ describe("generateWatchlistIntelligenceAlerts (Module 9)", () => {
     const a = generateWatchlistIntelligenceAlerts(input);
     const b = generateWatchlistIntelligenceAlerts(input);
     expect(a[0]?.dedupeKey).toBe(b[0]?.dedupeKey);
+  });
+});
+
+describe("generateDataQualityAlerts (Module 10)", () => {
+  it("Health data-quality tier=low → DATA_QUALITY_LOW INFO", () => {
+    const out = generateDataQualityAlerts({
+      userId: USER,
+      asOf: ASOF,
+      healthDataQuality: {
+        tier: "low",
+        effectiveWeight: 0.40,
+        coverageRatio: 0.55,
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.type).toBe("DATA_QUALITY_LOW");
+    expect(out[0]?.severity).toBe("INFO");
+    expect(out[0]?.dedupeKey).toContain("HEALTH");
+    expect(out[0]?.title.toLowerCase()).toContain("datakwaliteit");
+  });
+
+  it(">=40% posities met low/missing confidence-data → alert", () => {
+    const out = generateDataQualityAlerts({
+      userId: USER,
+      asOf: ASOF,
+      confidenceCoverage: {
+        totalPositions: 10,
+        lowQualityPositions: 4,
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.dedupeKey).toContain("CONFIDENCE");
+  });
+
+  it("<40% low-coverage → géén alert (geen ruis)", () => {
+    const out = generateDataQualityAlerts({
+      userId: USER,
+      asOf: ASOF,
+      confidenceCoverage: {
+        totalPositions: 10,
+        lowQualityPositions: 2,
+      },
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it("beide bronnen tegelijk → 2 alerts met distinct dedupeKey", () => {
+    const out = generateDataQualityAlerts({
+      userId: USER,
+      asOf: ASOF,
+      healthDataQuality: {
+        tier: "low",
+        effectiveWeight: 0.4,
+        coverageRatio: 0.5,
+      },
+      confidenceCoverage: {
+        totalPositions: 10,
+        lowQualityPositions: 5,
+      },
+    });
+    expect(out).toHaveLength(2);
+    const keys = new Set(out.map((o) => o.dedupeKey));
+    expect(keys.size).toBe(2);
+  });
+
+  it("dedupeKey idempotent (zelfde dag = zelfde key)", () => {
+    const input = {
+      userId: USER,
+      asOf: ASOF,
+      healthDataQuality: {
+        tier: "low" as const,
+        effectiveWeight: 0.3,
+        coverageRatio: 0.4,
+      },
+    };
+    const a = generateDataQualityAlerts(input);
+    const b = generateDataQualityAlerts(input);
+    expect(a[0]?.dedupeKey).toBe(b[0]?.dedupeKey);
+  });
+
+  it("geen input → géén alerts (graceful)", () => {
+    const out = generateDataQualityAlerts({ userId: USER, asOf: ASOF });
+    expect(out).toHaveLength(0);
   });
 });
 

@@ -94,6 +94,15 @@ export const ALERT_CATALOG: ReadonlyArray<AlertTypeDefinition> = [
     category: "market",
   },
   {
+    type: "DATA_QUALITY_LOW",
+    label: "Lage datakwaliteit",
+    description:
+      "Eén of meer engines (Portfolio Health, Confidence-score) leunen op onvoldoende data — interpreteer de scores met onzekerheidsmarge.",
+    defaultSeverity: "INFO",
+    defaultEnabled: true,
+    category: "portfolio",
+  },
+  {
     type: "AI_BRIEFING_READY",
     label: "AI dagelijkse briefing",
     description:

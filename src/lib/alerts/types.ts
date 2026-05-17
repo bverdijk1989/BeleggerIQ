@@ -16,7 +16,7 @@
 
 import type { ISODateString } from "@/types/common";
 
-/** 10 alert-typen — exact één-op-één met de spec. */
+/** 11 alert-typen — 10 Module 10-spec + bonus VALUATION_SIGNAL. */
 export type AlertType =
   | "HEALTH_DROP"
   | "CONCENTRATION_RISING"
@@ -27,6 +27,7 @@ export type AlertType =
   | "DIVIDEND_EVENT"
   | "WATCHLIST_OPPORTUNITY"
   | "VALUATION_SIGNAL"
+  | "DATA_QUALITY_LOW"
   | "AI_BRIEFING_READY";
 
 export type AlertSeverity = "INFO" | "WARNING" | "CRITICAL";

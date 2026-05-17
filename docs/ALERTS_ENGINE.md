@@ -1,25 +1,26 @@
 # Alerts Engine — Module 10
 
-In-app notification-center bovenop de bestaande outbound `NotificationDelivery`-laag (e-mail/digest). Tien alert-typen, drie severity-niveaus, per-type preferences, read/unread/dismiss-state, en een idempotente persist-laag op (userId, dedupeKey).
+In-app notification-center bovenop de bestaande outbound `NotificationDelivery`-laag (e-mail/digest). **11 alert-typen** (10 Module 10-spec + 1 bonus), drie severity-niveaus, per-type preferences, read/unread/dismiss-state, en een idempotente persist-laag op (userId, dedupeKey).
 
 > **UX-norm**: alerts moeten relevant zijn, niet spammy. Drempels zijn streng (Buffett-laag); zelfde gebeurtenis genereert ÉÉN rij ongeacht hoe vaak de engine draait.
 
 ---
 
-## 1. De 10 alert-typen
+## 1. Alert-typen (Module 10-mapping)
 
-| # | Type | Default-severity | Wanneer |
-|---|---|---|---|
-| 1 | `HEALTH_DROP` | WARNING | Health Score < 50, of −5pt drop (CRITICAL bij −12pt) |
-| 2 | `CONCENTRATION_RISING` | WARNING | Positie ≥ 20% (CRITICAL bij ≥ 30%); sector ≥ 45%; +3pt rising |
-| 3 | `PRICE_MOVE` | INFO | ±5% dag (WARNING bij ±10%); skip mini-posities < 1% |
-| 4 | `MACRO_REGIME_CHANGE` | WARNING | GOLDILOCKS/REFLATION/STAGFLATION/DEFLATION-flip |
-| 5 | `BEHAVIORAL_WARNING` | WARNING | Coach-signaal moderate+ dat nog niet bekend was (CRITICAL bij high) |
-| 6 | `EARNINGS_EVENT` | INFO | Kwartaalcijfers nadert (vereist external feed) |
-| 7 | `DIVIDEND_EVENT` | INFO | Ex-dividend-datum (vereist external feed) |
-| 8 | `WATCHLIST_OPPORTUNITY` | INFO | Watchlist-ticker bereikt target-prijs |
-| 9 | `VALUATION_SIGNAL` | INFO | Value-score ≥ 70 of FCF-yield ≥ 7% (max 5/run) |
-| 10 | `AI_BRIEFING_READY` | INFO | Daily Briefing klaar (één per dag per user) |
+| # | Module 10-spec | Type | Default-severity | Wanneer |
+|---|---|---|---|---|
+| 1 | Portfolio Health Score daalt | `HEALTH_DROP` | WARNING | Health Score < 50, of −5pt drop (CRITICAL bij −12pt) |
+| 2 | Concentratierisico stijgt | `CONCENTRATION_RISING` | WARNING | Positie ≥ 20% (CRITICAL bij ≥ 30%); sector ≥ 45%; +3pt rising |
+| 3 | Asset beweegt sterk | `PRICE_MOVE` | INFO | ±5% dag (WARNING bij ±10%); skip mini-posities < 1% |
+| 4 | Macroregime wijzigt | `MACRO_REGIME_CHANGE` | WARNING | GOLDILOCKS/REFLATION/STAGFLATION/DEFLATION-flip |
+| 5 | Behavioral warning | `BEHAVIORAL_WARNING` | WARNING | Coach-signaal moderate+ dat nog niet bekend was (CRITICAL bij high) |
+| 6 | Watchlist signal | `WATCHLIST_OPPORTUNITY` | INFO | Watchlist-ticker in target-zone of intelligence-tier flip (Module 9) |
+| 7 | Dividend event | `DIVIDEND_EVENT` | INFO | Ex-dividend-datum (vereist external feed) |
+| 8 | Earnings event | `EARNINGS_EVENT` | INFO | Kwartaalcijfers nadert (vereist external feed) |
+| 9 | Lage datakwaliteit | `DATA_QUALITY_LOW` | INFO | Health-tier=low **of** ≥40% posities met low/missing confidence-data |
+| 10 | AI briefing beschikbaar | `AI_BRIEFING_READY` | INFO | Daily Briefing klaar (één per dag per user) |
+| + | (bonus) Waardering | `VALUATION_SIGNAL` | INFO | Value-score ≥ 70 of FCF-yield ≥ 7% (max 5/run) |
 
 ---
 
@@ -27,14 +28,15 @@ In-app notification-center bovenop de bestaande outbound `NotificationDelivery`-
 
 ```
 src/lib/alerts/
-├── types.ts              # AlertType, AlertSeverity, AlertStatus, Alert(Candidate)
+├── types.ts              # AlertType (11 keys), AlertSeverity, AlertStatus, Alert
 ├── catalog.ts            # Per-type definities (label, default-severity, category)
 ├── preferences.ts        # AlertPreferences (per type enabled + minSeverity)
-├── generators.ts         # 10 pure event-generators
+├── generators.ts         # 12 pure event-generators (incl. Module 9 intelligence + Module 10 data-quality)
 ├── service.ts            # evaluateAlerts(...) orchestrator
 ├── actions.ts            # Server actions: markRead/markAllRead/dismiss/undismiss + prefs
-├── generators.test.ts    # 31 tests
-├── service.test.ts       # 13 tests (44 totaal)
+├── generators.test.ts    # 41 tests
+├── service.test.ts       # 13 tests
+├── spec-conformance.test.ts # 7 tests — Module 10 spec-eisen
 └── index.ts
 
 src/lib/data/
