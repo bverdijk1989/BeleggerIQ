@@ -77,7 +77,7 @@ export async function buildPortfolioView(
     baseCurrency,
     valuationsWithScores,
     {
-      cashBalance: options.cashBalance,
+      cashBalance: options.cashBalance ?? portfolio.cashBalance,
       cashCurrency: baseCurrency,
       topN: options.topN,
     },

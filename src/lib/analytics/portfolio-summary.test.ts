@@ -59,6 +59,24 @@ describe("computePortfolioSummary", () => {
     expect(summary.positionCount).toBe(2);
   });
 
+  it("valt terug op portfolio.cashBalance als options.cashBalance ontbreekt", () => {
+    // Regressie: eerder werd portfolio.cashBalance stilletjes genegeerd
+    // wanneer de caller geen options.cashBalance meegaf. Dat veroorzaakte
+    // false-positive "0.0% cash — beperkte buffer"-signalen in de
+    // behavioral coach voor users die wél cash hadden opgegeven.
+    const portfolio = { ...makePortfolio(), cashBalance: 862 };
+    const summary = computePortfolioSummary(portfolio);
+
+    expect(summary.cashBalance).toBe(862);
+    expect(summary.totalValue).toBe(10 * 600 + 20 * 30 + 862);
+  });
+
+  it("options.cashBalance overschrijft portfolio.cashBalance", () => {
+    const portfolio = { ...makePortfolio(), cashBalance: 862 };
+    const summary = computePortfolioSummary(portfolio, { cashBalance: 5000 });
+    expect(summary.cashBalance).toBe(5000);
+  });
+
   it("sorteert topposities op marktwaarde aflopend", () => {
     const summary = computePortfolioSummary(makePortfolio());
     expect(summary.topPositions[0]?.ticker).toBe("ASML");

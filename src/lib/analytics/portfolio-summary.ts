@@ -112,6 +112,9 @@ export function computePortfolioSummary(
     portfolio.id,
     portfolio.baseCurrency,
     valuations,
-    { cashBalance: options.cashBalance, topN: options.topN },
+    {
+      cashBalance: options.cashBalance ?? portfolio.cashBalance,
+      topN: options.topN,
+    },
   );
 }
