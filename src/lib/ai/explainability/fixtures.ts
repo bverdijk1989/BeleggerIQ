@@ -6,6 +6,8 @@ import type { BehavioralSignalWithState } from "@/lib/analytics/behavioral";
 import type { PortfolioHealthScore } from "@/lib/analytics/health-score";
 import type { MacroRegimeReport } from "@/lib/analytics/macro-regime";
 import type { InvestmentConfidenceScore } from "@/lib/analytics/signal-fusion";
+import type { WatchlistIntelligenceReport } from "@/lib/watchlist-intelligence";
+import type { AllocationPlan } from "@/types/allocation";
 import type { PortfolioRiskSummary } from "@/types/risk";
 
 import type {
@@ -271,4 +273,147 @@ export function makeScenarioContextFixture(
     ],
     ...overrides,
   };
+}
+
+export function makeAllocationPlanFixture(
+  overrides: Partial<AllocationPlan> = {},
+): AllocationPlan {
+  const base: AllocationPlan = {
+    id: "plan-1",
+    portfolioId: "p-1",
+    asOf: "2026-05-10T00:00:00.000Z",
+    baseCurrency: "EUR",
+    monthlyContribution: 500,
+    cashAvailable: 1200,
+    recommendations: [
+      {
+        ticker: "ASML",
+        name: "ASML Holding",
+        action: "add",
+        currentWeight: 0.10,
+        targetWeight: 0.12,
+        deltaWeight: 0.02,
+        suggestedAmount: 300,
+        convictionScore: 0.75,
+        priority: 1,
+        rationale: ["Quality 85, momentum sterk."],
+      },
+      {
+        ticker: "VWCE",
+        name: "Vanguard FTSE All-World",
+        action: "buy",
+        currentWeight: 0,
+        targetWeight: 0.05,
+        deltaWeight: 0.05,
+        suggestedAmount: 200,
+        convictionScore: 0.60,
+        priority: 2,
+        rationale: ["Core-spreiding aanvullen."],
+      },
+    ],
+    summary: "Plan: ASML bijkopen + VWCE openen.",
+    budget: 500,
+    deployedAmount: 500,
+    cashReserved: 0,
+    warnings: [],
+    simulation: {
+      projectedTotalValue: 80_874,
+      projectedCashBalance: 700,
+      projectedPositionCount: 13,
+      projectedLargestPositionWeight: 0.20,
+      projectedForeignCurrencyExposure: 0.45,
+    },
+    coreEtfUsed: false,
+  };
+  return { ...base, ...overrides };
+}
+
+export function makeWatchlistReportFixture(
+  overrides: Partial<WatchlistIntelligenceReport> = {},
+): WatchlistIntelligenceReport {
+  const base: WatchlistIntelligenceReport = {
+    ticker: "ASML",
+    asOf: "2026-05-10T00:00:00.000Z",
+    headline: "Waardering verbeterd + sterk momentum.",
+    tier: "POSITIVE",
+    signals: [
+      {
+        key: "VALUATION_IMPROVED",
+        label: "Waardering",
+        available: true,
+        direction: "positive",
+        rationale: "P/E gezakt van 30 naar 22 in 12mnd.",
+        metric: 22,
+        strength: 70,
+      },
+      {
+        key: "MOMENTUM_CHANGED",
+        label: "Momentum",
+        available: true,
+        direction: "positive",
+        rationale: "12mnd return +18%, boven sector.",
+        metric: 0.18,
+        strength: 65,
+      },
+      {
+        key: "EARNINGS_SOON",
+        label: "Earnings",
+        available: true,
+        direction: "neutral",
+        rationale: "Earnings over 3 weken.",
+        metric: 21,
+        strength: 40,
+      },
+      {
+        key: "DIVIDEND_CHANGED",
+        label: "Dividend",
+        available: false,
+        direction: "neutral",
+        rationale: "Geen dividend-data beschikbaar.",
+        metric: null,
+        strength: 0,
+      },
+      {
+        key: "MACRO_FIT",
+        label: "Macro-fit",
+        available: true,
+        direction: "positive",
+        rationale: "Goldilocks-regime is rugwind voor growth.",
+        metric: 0.75,
+        strength: 60,
+      },
+      {
+        key: "SENTIMENT_SHIFT",
+        label: "Sentiment",
+        available: false,
+        direction: "neutral",
+        rationale: "Geen sentiment-feed.",
+        metric: null,
+        strength: 0,
+      },
+      {
+        key: "SIMILAR_ALTERNATIVE",
+        label: "Alternatieven",
+        available: true,
+        direction: "neutral",
+        rationale: "1 alternatief gevonden.",
+        metric: null,
+        strength: 30,
+      },
+    ],
+    alternatives: [
+      {
+        ticker: "TSM",
+        name: "TSMC",
+        similarity: 0.82,
+        compositeScore: 75,
+        rationale: "Vergelijkbaar fab-business-model, hogere FCF-yield.",
+        source: "watchlist",
+      },
+    ],
+    whyInteresting:
+      "Een ticker waarbij waardering + momentum + macro-fit gunstig samenvallen — aandacht waard, geen koop-trigger.",
+    sources: ["factor-engine", "fundamentals", "macro-regime"],
+  };
+  return { ...base, ...overrides };
 }

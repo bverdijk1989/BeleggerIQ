@@ -22,8 +22,10 @@ export {
   buildConfidencePrompt,
   buildHealthPrompt,
   buildMacroPrompt,
+  buildMonthlyDecisionPrompt,
   buildRiskPrompt,
   buildScenarioPrompt,
+  buildWatchlistPrompt,
   type BehavioralExplainContext,
   type ScenarioExplainContext,
 } from "./prompts";
@@ -32,8 +34,10 @@ export {
   fallbackConfidence,
   fallbackHealth,
   fallbackMacro,
+  fallbackMonthlyDecision,
   fallbackRisk,
   fallbackScenarios,
+  fallbackWatchlist,
 } from "./fallbacks";
 export {
   explainAll,
@@ -41,8 +45,10 @@ export {
   explainConfidence,
   explainHealth,
   explainMacro,
+  explainMonthlyDecision,
   explainRisk,
   explainScenarios,
+  explainWatchlist,
   resetExplainabilityCache,
   type AnyExplanationInput,
   type ExplainAllResult,

@@ -19,14 +19,16 @@
 
 import type { ISODateString } from "@/types/common";
 
-/** 6 ondersteunde uitleg-domeinen. */
+/** 8 ondersteunde uitleg-domeinen (Module 8). */
 export type ExplainabilityDomain =
   | "portfolio_health"
   | "investment_confidence"
   | "macro_regime"
   | "behavioral_coach"
   | "risk_analysis"
-  | "scenario_analysis";
+  | "scenario_analysis"
+  | "monthly_decision"
+  | "watchlist_signals";
 
 export type ExplanationMode = "ai" | "fallback";
 export type ExplanationConfidence = "low" | "medium" | "high";
@@ -115,4 +117,6 @@ export const DOMAIN_LABELS: Record<ExplainabilityDomain, string> = {
   behavioral_coach: "Behavioral Coach",
   risk_analysis: "Risico-analyse",
   scenario_analysis: "Scenario-analyse",
+  monthly_decision: "Maandelijkse koopbeslissing",
+  watchlist_signals: "Watchlist-signalen",
 };

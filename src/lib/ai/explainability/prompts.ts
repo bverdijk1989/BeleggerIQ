@@ -19,6 +19,8 @@ import type {
 } from "@/lib/analytics/health-score";
 import type { MacroRegimeReport } from "@/lib/analytics/macro-regime";
 import type { InvestmentConfidenceScore } from "@/lib/analytics/signal-fusion";
+import type { WatchlistIntelligenceReport } from "@/lib/watchlist-intelligence";
+import type { AllocationPlan } from "@/types/allocation";
 import type { PortfolioRiskSummary } from "@/types/risk";
 
 import type { ExplainabilityDomain } from "./types";
@@ -64,6 +66,10 @@ const PERSONAS: Record<ExplainabilityDomain, string> = {
     "Je bent BeleggerIQ Risk-Explainer. Beschrijf de portefeuille-risico's in beleggers-taal — concentratie, volatiliteit, valuta. Hedge altijd ('mogelijk risico', 'let op').",
   scenario_analysis:
     "Je bent BeleggerIQ Scenario-Explainer. Verklaar wat verschillende macro-scenario's met de portefeuille zouden doen — Dalio-laag: risico's expliciet maken zonder paniek-toon.",
+  monthly_decision:
+    "Je bent BeleggerIQ Allocation-Explainer. Leg uit waarom dit maandelijkse koopplan zo is samengesteld — Buffett-laag: kwaliteit en lange-termijn-anker, Dalio-laag: regime-tilt en buffer, Lynch-laag: spreektaal. Geen koopadvies, wel uitleg van de redenering.",
+  watchlist_signals:
+    "Je bent BeleggerIQ Watchlist-Explainer. Vertaal de 7 signalen + alternatieven van een watchlist-ticker in een begrijpelijke samenvatting — Lynch-laag: spreektaal, Simons-laag: meetbaar zonder valse zekerheid. Geen koop-trigger, wel een 'hier-is-het-aandacht-waardig'-context.",
 };
 
 function buildSystemPrompt(domain: ExplainabilityDomain): string {
@@ -176,4 +182,34 @@ export function buildScenarioPrompt(
     goal,
   );
   return { system: buildSystemPrompt("scenario_analysis"), user, contextJson };
+}
+
+// ============================================================
+//  7. Monthly decision (maandbeslissing) — Module 8
+// ============================================================
+
+export function buildMonthlyDecisionPrompt(plan: AllocationPlan): PromptPayload {
+  const goal = `Vat het maandelijkse koopplan samen: budget ${plan.budget ?? plan.monthlyContribution} ${plan.baseCurrency}, ${plan.recommendations.length} aanbevelingen. Leg uit waarom de top-3 recommendations zijn gekozen (gebruik \`rationale\`-arrays per item), welke ruimte er bewust open blijft (\`cashReserved\` / \`warnings\`), en wat de projectie ná uitvoering toont (\`simulation\`). Geen koopadvies — alleen toelichting op de redenering.`;
+  const { user, contextJson } = buildUserPrompt(
+    "monthly_decision",
+    plan,
+    goal,
+  );
+  return { system: buildSystemPrompt("monthly_decision"), user, contextJson };
+}
+
+// ============================================================
+//  8. Watchlist signals — Module 8
+// ============================================================
+
+export function buildWatchlistPrompt(
+  report: WatchlistIntelligenceReport,
+): PromptPayload {
+  const goal = `Vat de signaal-set van ${report.ticker} samen (tier ${report.tier}). Benoem de 1–2 sterkste positieve signalen + zwakste negatieve, gebruik \`metric\` en \`rationale\` letterlijk. Als er alternatieven zijn (\`alternatives[]\`), benoem dan kort waarom ze interessant zijn. Eindig met 'niet-handelen-is-ook-een-keuze'-toon — geen koop-trigger.`;
+  const { user, contextJson } = buildUserPrompt(
+    "watchlist_signals",
+    report,
+    goal,
+  );
+  return { system: buildSystemPrompt("watchlist_signals"), user, contextJson };
 }

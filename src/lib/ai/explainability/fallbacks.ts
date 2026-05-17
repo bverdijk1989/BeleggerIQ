@@ -24,6 +24,8 @@ import type {
   InvestmentConfidenceScore,
   SignalContribution,
 } from "@/lib/analytics/signal-fusion";
+import type { WatchlistIntelligenceReport } from "@/lib/watchlist-intelligence";
+import type { AllocationPlan } from "@/types/allocation";
 import type { PortfolioRiskSummary } from "@/types/risk";
 
 import type { BehavioralExplainContext, ScenarioExplainContext } from "./prompts";
@@ -497,6 +499,201 @@ export function fallbackScenarios(
       "Scenario-impact is een statische schatting — sequence-of-returns + duur worden niet meegenomen.",
     ),
   ];
+
+  return { summary, whyItMatters, positives, risks, possibleActions, uncertainties };
+}
+
+// ============================================================
+//  7. Monthly decision (maandbeslissing) — Module 8
+// ============================================================
+
+export function fallbackMonthlyDecision(
+  plan: AllocationPlan,
+): ParsedExplanationDraft {
+  const recs = plan.recommendations ?? [];
+  const buys = recs
+    .filter((r) => r.action === "buy" || r.action === "add")
+    .sort((a, b) => (b.suggestedAmount ?? 0) - (a.suggestedAmount ?? 0));
+  const trims = recs.filter(
+    (r) => r.action === "trim" || r.action === "sell",
+  );
+
+  const totalBudget = plan.budget ?? plan.monthlyContribution;
+  const deployed = plan.deployedAmount ?? buys.reduce(
+    (sum, r) => sum + (r.suggestedAmount ?? 0),
+    0,
+  );
+  const reserved = plan.cashReserved ?? Math.max(0, totalBudget - deployed);
+
+  const summary = plan.summary
+    ? plan.summary
+    : recs.length === 0
+      ? `Geen koopactie deze maand — overweeg het budget aan te houden of door te schuiven.`
+      : `Maandplan: ${recs.length} aanbeveling${recs.length === 1 ? "" : "en"}, ingezet ${Math.round(deployed)} ${plan.baseCurrency}${reserved > 0 ? `, ${Math.round(reserved)} bewust gereserveerd` : ""}.`;
+
+  const whyItMatters = `Dit plan zet je periodieke inleg in volgens de huidige policy + regime-tilt. Een doordachte allocatie elke maand bouwt — Buffett-laag — een lange-termijn-fundament zonder timing-stress.`;
+
+  const positives: string[] = [];
+  if (buys.length > 0) {
+    positives.push(
+      ...buys.slice(0, 3).map((r) =>
+        bullet(
+          `${r.action === "buy" ? "Nieuw" : "Bijkopen"}: ${r.ticker}${r.name ? ` (${r.name})` : ""} — ~${Math.round(r.suggestedAmount ?? 0)} ${plan.baseCurrency}${r.rationale[0] ? ` · ${r.rationale[0]}` : ""}`,
+        ),
+      ),
+    );
+  }
+  if (plan.simulation) {
+    positives.push(
+      bullet(
+        `Projectie na uitvoering: ${plan.simulation.projectedPositionCount} posities, grootste positie ${pct(plan.simulation.projectedLargestPositionWeight)}.`,
+      ),
+    );
+  }
+  if (positives.length === 0) {
+    positives.push(bullet("Geen specifieke aanbevelingen — beleid is om door te DCA-en in de bestaande core."));
+  }
+
+  const risks: string[] = [];
+  if (trims.length > 0) {
+    risks.push(
+      ...trims.slice(0, 2).map((r) =>
+        bullet(
+          `Trim/sell: ${r.ticker} (${pct(r.currentWeight)} → ${pct(r.targetWeight)})${r.rationale[0] ? ` · ${r.rationale[0]}` : ""}.`,
+        ),
+      ),
+    );
+  }
+  if (reserved > 0 && totalBudget > 0 && reserved / totalBudget > 0.30) {
+    risks.push(
+      bullet(
+        `Veel cash gereserveerd (~${pct(reserved / totalBudget, 0)} van budget) — let op cash-drag.`,
+      ),
+    );
+  }
+  if (plan.warnings && plan.warnings.length > 0) {
+    risks.push(...plan.warnings.slice(0, 3).map((w) => bullet(w)));
+  }
+  if (risks.length === 0) {
+    risks.push(bullet("Geen materiële risico's gesignaleerd door de allocatie-engine voor deze maand."));
+  }
+
+  const possibleActions: ExplanationAction[] = [];
+  if (buys.length > 0) {
+    possibleActions.push({
+      title: "Bekijk de maandbeslissing-pagina",
+      rationale: "Per recommendation zie je de volledige redenering + alternatieven.",
+      link: "/maandbeslissing",
+    });
+  }
+  if (plan.coreEtfUsed) {
+    possibleActions.push({
+      title: "Overweeg of de core-ETF nog past",
+      rationale:
+        "De engine gebruikte de core-ETF fallback voor spreiding — controleer of je 'em bewust als breedmix wilt aanhouden.",
+      link: "/portfolio",
+    });
+  }
+  if (possibleActions.length === 0) {
+    possibleActions.push({
+      title: "Houd de maandbijdrage als cash-buffer",
+      rationale: "Geen sterke kandidaten op tafel — geld vasthouden tot er een betere setup komt is een geldige actie.",
+    });
+  }
+
+  const uncertainties: string[] = [];
+  if (!plan.simulation) {
+    uncertainties.push(
+      bullet("Post-buy projectie ontbreekt — interpreteer de impact-cijfers met marge."),
+    );
+  }
+  if (!plan.regime) {
+    uncertainties.push(
+      bullet("Regime-tilt is niet meegenomen — plan is policy-only."),
+    );
+  }
+  if (uncertainties.length === 0) {
+    uncertainties.push(
+      bullet("Allocatie-engine kreeg policy + regime + valuations als input — coverage is volledig."),
+    );
+  }
+
+  return { summary, whyItMatters, positives, risks, possibleActions, uncertainties };
+}
+
+// ============================================================
+//  8. Watchlist signals — Module 8
+// ============================================================
+
+export function fallbackWatchlist(
+  report: WatchlistIntelligenceReport,
+): ParsedExplanationDraft {
+  const active = report.signals.filter((s) => s.available);
+  const positivesSignals = [...active]
+    .filter((s) => s.direction === "positive")
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, 3);
+  const negativesSignals = [...active]
+    .filter((s) => s.direction === "negative")
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, 3);
+  const missing = report.signals.filter((s) => !s.available);
+
+  const summary = `${report.ticker}: ${report.headline} (tier ${report.tier}).`;
+  const whyItMatters = `Watchlist-signalen zijn aandachtspunten, geen koop-triggers. ${report.whyInteresting}`;
+
+  const positives = positivesSignals.length
+    ? positivesSignals.map((s) =>
+        bullet(`${s.label}: ${s.rationale}`),
+      )
+    : [bullet("Geen sterk positieve signalen op dit moment — wachten kan ook informatief zijn.")];
+
+  const risks = negativesSignals.length
+    ? negativesSignals.map((s) =>
+        bullet(`${s.label}: ${s.rationale}`),
+      )
+    : [bullet("Geen actieve negatieve signalen.")];
+
+  const possibleActions: ExplanationAction[] = [];
+  if (report.tier === "STRONG_OPPORTUNITY" || report.tier === "POSITIVE") {
+    possibleActions.push({
+      title: "Bekijk de full breakdown",
+      rationale: "Per signaal zie je de meetwaarde en rationale — bevestig of het bij je strategie past.",
+      link: `/watchlist`,
+    });
+  }
+  if (report.alternatives.length > 0) {
+    const alt = report.alternatives[0]!;
+    possibleActions.push({
+      title: `Vergelijk met ${alt.ticker}`,
+      rationale: `Lijkt op deze ticker (similarity ${pct(alt.similarity, 0)}, score ${alt.compositeScore}/100) — ${alt.rationale}`,
+      link: `/score/${alt.ticker}`,
+    });
+  }
+  if (possibleActions.length === 0) {
+    possibleActions.push({
+      title: "Houd op de watchlist staan",
+      rationale: "Niet-handelen-is-ook-een-keuze — wacht op een sterker setup of duidelijker signaal.",
+      link: "/watchlist",
+    });
+  }
+
+  const uncertainties: string[] = [];
+  if (missing.length > 0) {
+    uncertainties.push(
+      bullet(
+        `${missing.length} van de 7 signalen ontbreken: ${missing.map((m) => m.label).join(", ")}.`,
+      ),
+    );
+  }
+  if (report.alternatives.length === 0) {
+    uncertainties.push(
+      bullet("Geen vergelijkbare alternatieven gevonden — beoordeling op merits van deze ticker alleen."),
+    );
+  }
+  if (uncertainties.length === 0) {
+    uncertainties.push(bullet("Alle 7 signaalbronnen leverden bruikbare data."));
+  }
 
   return { summary, whyItMatters, positives, risks, possibleActions, uncertainties };
 }

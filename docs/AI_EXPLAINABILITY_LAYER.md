@@ -1,27 +1,31 @@
-# AI Explainability Layer — Module 7
+# AI Explainability Layer — Module 8
 
-Eén centrale service die de output van álle BeleggerIQ-engines vertaalt in begrijpelijke uitleg met een vaste structuur. Elk domein levert dezelfde shape — een UI-laag rendert generiek, een AI-laag vult 'em in (met fallback).
+Eén centrale service die de output van álle BeleggerIQ-engines vertaalt in begrijpelijke uitleg met een vaste structuur. Elk domein levert dezelfde shape — een UI-laag rendert generiek, een AI-laag vult 'em in (met deterministische fallback).
 
 > **Doel**: een gewone belegger snapt binnen 30 seconden wat een score betekent, waarom dat belangrijk is, wat positief en wat risicovol is, en wat hij kan doen.
 
 ---
 
-## 1. Zes ondersteunde domeinen
+## 1. Acht ondersteunde domeinen (Module 8-mapping)
 
-| Domain | Bron-engine | Public API |
-|---|---|---|
-| `portfolio_health` | Module 1 — Portfolio Health Score | `explainHealth(score)` |
-| `investment_confidence` | Module 6 — Signal Fusion Engine | `explainConfidence(score)` |
-| `macro_regime` | Module 5 — Macro Regime Engine | `explainMacro(report)` |
-| `behavioral_coach` | Module 3 — Behavioral Coach | `explainBehavioral(context)` |
-| `risk_analysis` | Risk Engine | `explainRisk(risk)` |
-| `scenario_analysis` | Macro Scenarios | `explainScenarios(context)` |
+De Module 8-spec eist 7 domeinen; we ondersteunen er 8 (de extra is `risk_analysis`, die buiten de Module 8-eisen al bestond en complementair is aan `scenario_analysis`).
+
+| # | Module 8-spec | Domain-key | Bron-engine | Public API |
+|---|---|---|---|---|
+| 1 | Portfolio Health Score | `portfolio_health` | Module 1 — Portfolio Health Score | `explainHealth(score)` |
+| 2 | Investment Confidence Score | `investment_confidence` | Module 7 — Signal Fusion Engine | `explainConfidence(score)` |
+| 3 | Macro Regime | `macro_regime` | Module 6 — Macro Regime Engine | `explainMacro(report)` |
+| 4 | Behavioral warnings | `behavioral_coach` | Module 3 — Behavioral Coach | `explainBehavioral(context)` |
+| 5 | Scenario/stresstest | `scenario_analysis` | Macro Scenarios + Stress-tests | `explainScenarios(context)` |
+| 6 | Maandelijkse koopbeslissing | `monthly_decision` | Allocation engine (Module 21) | `explainMonthlyDecision(plan)` |
+| 7 | Watchlist signals | `watchlist_signals` | Watchlist intelligence | `explainWatchlist(report)` |
+| — | (extra) Risico-analyse | `risk_analysis` | Risk Engine | `explainRisk(risk)` |
 
 Plus `explainAll(input)` die parallel uitleg ophaalt voor alle aanwezige inputs.
 
 ---
 
-## 2. Output-schema (vast voor alle 6 domeinen)
+## 2. Output-schema (vast voor alle 8 domeinen)
 
 ```ts
 interface DomainExplanation {
@@ -56,18 +60,18 @@ interface DomainExplanation {
 
 ```
 src/lib/ai/explainability/
-├── types.ts              # DomainExplanation + sub-types + labels
-├── prompts.ts            # 6 domain-specifieke prompt-builders
-├── fallbacks.ts          # 6 deterministische fallback-renderers
+├── types.ts              # DomainExplanation + sub-types + labels (8 domains)
+├── prompts.ts            # 8 domain-specifieke prompt-builders
+├── fallbacks.ts          # 8 deterministische fallback-renderers
 ├── guardrails.ts         # JSON-shape + banned + hedged + numeric-claim
 ├── tracing.ts            # SourceTrace + dedupe-helper
 ├── service.ts            # Orchestrator (cache, AI-pipeline, fallback)
 ├── fixtures.ts           # Test-fixtures
-├── *.test.ts             # 40 tests
+├── *.test.ts             # 40+ tests, incl. spec-conformance.test.ts (Module 8)
 └── index.ts              # Public API
 
 src/components/explainability/
-└── explanation-panel.tsx # Generieke UI voor alle 6 domeinen
+└── explanation-panel.tsx # Generieke UI voor alle 8 domeinen
 ```
 
 ---

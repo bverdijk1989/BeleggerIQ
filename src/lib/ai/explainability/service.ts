@@ -23,6 +23,8 @@ import type { BehavioralSignalWithState } from "@/lib/analytics/behavioral";
 import type { PortfolioHealthScore } from "@/lib/analytics/health-score";
 import type { MacroRegimeReport } from "@/lib/analytics/macro-regime";
 import type { InvestmentConfidenceScore } from "@/lib/analytics/signal-fusion";
+import type { WatchlistIntelligenceReport } from "@/lib/watchlist-intelligence";
+import type { AllocationPlan } from "@/types/allocation";
 import type { PortfolioRiskSummary } from "@/types/risk";
 
 import {
@@ -35,8 +37,10 @@ import {
   fallbackConfidence,
   fallbackHealth,
   fallbackMacro,
+  fallbackMonthlyDecision,
   fallbackRisk,
   fallbackScenarios,
+  fallbackWatchlist,
 } from "./fallbacks";
 import {
   validateExplanationOutput,
@@ -48,8 +52,10 @@ import {
   buildConfidencePrompt,
   buildHealthPrompt,
   buildMacroPrompt,
+  buildMonthlyDecisionPrompt,
   buildRiskPrompt,
   buildScenarioPrompt,
+  buildWatchlistPrompt,
   type BehavioralExplainContext,
   type PromptPayload,
   type ScenarioExplainContext,
@@ -381,6 +387,66 @@ export async function explainScenarios(
   });
 }
 
+export async function explainMonthlyDecision(
+  plan: AllocationPlan,
+  options?: ExplainOptions,
+): Promise<DomainExplanation> {
+  // Confidence: rec-count + aanwezigheid simulatie als proxy voor coverage.
+  const baseConfidence: ExplanationConfidence =
+    plan.recommendations.length > 0 && plan.simulation
+      ? "high"
+      : plan.recommendations.length > 0
+        ? "medium"
+        : "low";
+  return runDomainPipeline({
+    domain: "monthly_decision",
+    prompt: buildMonthlyDecisionPrompt(plan),
+    fallback: fallbackMonthlyDecision(plan),
+    sources: [
+      trace(
+        "allocation-engine",
+        [
+          "recommendations",
+          "budget",
+          "deployedAmount",
+          "cashReserved",
+          "warnings",
+          "simulation",
+          "regime",
+        ],
+        plan.asOf,
+      ),
+      trace("portfolio-view", ["valuations", "summary"]),
+    ],
+    baseConfidence,
+    options,
+  });
+}
+
+export async function explainWatchlist(
+  report: WatchlistIntelligenceReport,
+  options?: ExplainOptions,
+): Promise<DomainExplanation> {
+  // Confidence: aantal beschikbare signalen als proxy voor data-coverage.
+  const available = report.signals.filter((s) => s.available).length;
+  const baseConfidence: ExplanationConfidence =
+    available >= 5 ? "high" : available >= 3 ? "medium" : "low";
+  return runDomainPipeline({
+    domain: "watchlist_signals",
+    prompt: buildWatchlistPrompt(report),
+    fallback: fallbackWatchlist(report),
+    sources: [
+      trace(
+        "watchlist-intelligence",
+        ["signals", "alternatives", "tier", "headline"],
+        report.asOf,
+      ),
+    ],
+    baseConfidence,
+    options,
+  });
+}
+
 // ============================================================
 //  Generic adapter — voor het bouwen van een uitleg-stream over alle 6
 // ============================================================
@@ -392,6 +458,8 @@ export interface AnyExplanationInput {
   behavioral?: BehavioralExplainContext | null;
   risk?: PortfolioRiskSummary | null;
   scenarios?: ScenarioExplainContext | null;
+  monthlyDecision?: AllocationPlan | null;
+  watchlist?: WatchlistIntelligenceReport | null;
 }
 
 export interface ExplainAllResult {
@@ -401,6 +469,8 @@ export interface ExplainAllResult {
   behavioral: DomainExplanation | null;
   risk: DomainExplanation | null;
   scenarios: DomainExplanation | null;
+  monthlyDecision: DomainExplanation | null;
+  watchlist: DomainExplanation | null;
 }
 
 /**
@@ -411,14 +481,35 @@ export async function explainAll(
   input: AnyExplanationInput,
   options?: ExplainOptions,
 ): Promise<ExplainAllResult> {
-  const [health, confidence, macro, behavioral, risk, scenarios] =
-    await Promise.all([
-      input.health ? explainHealth(input.health, options) : null,
-      input.confidence ? explainConfidence(input.confidence, options) : null,
-      input.macro ? explainMacro(input.macro, options) : null,
-      input.behavioral ? explainBehavioral(input.behavioral, options) : null,
-      input.risk ? explainRisk(input.risk, options) : null,
-      input.scenarios ? explainScenarios(input.scenarios, options) : null,
-    ]);
-  return { health, confidence, macro, behavioral, risk, scenarios };
+  const [
+    health,
+    confidence,
+    macro,
+    behavioral,
+    risk,
+    scenarios,
+    monthlyDecision,
+    watchlist,
+  ] = await Promise.all([
+    input.health ? explainHealth(input.health, options) : null,
+    input.confidence ? explainConfidence(input.confidence, options) : null,
+    input.macro ? explainMacro(input.macro, options) : null,
+    input.behavioral ? explainBehavioral(input.behavioral, options) : null,
+    input.risk ? explainRisk(input.risk, options) : null,
+    input.scenarios ? explainScenarios(input.scenarios, options) : null,
+    input.monthlyDecision
+      ? explainMonthlyDecision(input.monthlyDecision, options)
+      : null,
+    input.watchlist ? explainWatchlist(input.watchlist, options) : null,
+  ]);
+  return {
+    health,
+    confidence,
+    macro,
+    behavioral,
+    risk,
+    scenarios,
+    monthlyDecision,
+    watchlist,
+  };
 }
