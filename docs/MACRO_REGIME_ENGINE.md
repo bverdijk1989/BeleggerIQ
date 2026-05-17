@@ -1,8 +1,8 @@
-# Macro Regime Engine — Module 5
+# Macro Regime Engine 2.0 — Module 6
 
 Classificeert de wereldeconomie naar één van 5 macro-regimes op basis van 7 indicators, en mapt die naar asset-class impact + portfolio-impact.
 
-> **Voorbeeld-output**: "Het huidige regime lijkt op dalende groei + hardnekkige inflatie. Portefeuilles met veel cyclische groeiaandelen zijn dan kwetsbaarder."
+> **Voorbeeld-output (huidige seed-snapshot)**: "Het huidige regime lijkt op dalende groei + hardnekkige inflatie. Groei daalt terwijl inflatie hardnekkig hoog blijft." → Portfolio-summary: "Portefeuilles met veel cyclische groeiaandelen zijn dan kwetsbaarder."
 
 ---
 

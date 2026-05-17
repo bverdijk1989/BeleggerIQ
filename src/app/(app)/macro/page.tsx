@@ -277,7 +277,7 @@ export default async function MacroPage() {
             <strong className="text-foreground">Data-bron</strong>: composite
             (DB-snapshot waar beschikbaar, anders seed-fallback). Drempels en
             tabellen staan in{" "}
-            <code className="rounded bg-muted/30 px-1">docs/MACRO_REGIME.md</code>
+            <code className="rounded bg-muted/30 px-1">docs/MACRO_REGIME_ENGINE.md</code>
             .
           </p>
         </div>
