@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { ArrowRight, Calendar, Target, TrendingUp } from "lucide-react";
+import { ArrowRight, Briefcase, Calendar, Target, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,9 +26,11 @@ import { FeasibilityBadge } from "./feasibility-badge";
 interface Props {
   goal: FinancialGoal;
   projection: GoalProjection;
+  /** Optionele naam van de gekoppelde portefeuille (Module 5). */
+  portfolioName?: string | null;
 }
 
-export function GoalCard({ goal, projection }: Props) {
+export function GoalCard({ goal, projection, portfolioName }: Props) {
   const detailHref: Route = `/doelen/${goal.id}` as Route;
   const progressPct = Math.round(projection.progress * 100);
   const yearsLabel =
@@ -87,6 +89,13 @@ export function GoalCard({ goal, projection }: Props) {
             </Badge>
           </span>
         </div>
+
+        {goal.portfolioId && (
+          <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Briefcase className="h-3 w-3" aria-hidden />
+            Gekoppeld aan {portfolioName ?? "portefeuille"}
+          </p>
+        )}
 
         {/* Scenario-eindwaarden */}
         <div className="rounded-md border border-border/40 bg-muted/10 p-2 text-[11px]">

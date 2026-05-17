@@ -1,4 +1,4 @@
-# Financial Goals — Module 4
+# Financial Goals — Module 4 + Module 5
 
 Een dashboard waar de gebruiker zijn portefeuille koppelt aan **levensdoelen**: pensioen, FIRE, dividendinkomen, vermogensgroei, huis, studie, buffer, of een eigen doel. Per doel rekent de engine drie scenario's door (pessimistisch / verwacht / optimistisch) en geeft een **feasibility-tier** met concrete bijstuur-suggesties.
 
@@ -56,11 +56,15 @@ model FinancialGoal {
   riskProfile             RiskTolerance  default BALANCED
   baseCurrency            String         default "EUR"
   description             String?
+  portfolioId             String?        // Module 5 — optionele koppeling
+  portfolio               Portfolio?     @relation(onDelete: SetNull)
   isActive                Boolean        default true   // soft-delete
 }
 ```
 
 Soft-delete (`isActive=false`) bewaart historiek voor audit. CRUD via `goalRepository`.
+
+`portfolioId` is **nullable**: een doel kan vrijstaand zijn (bv. een cash-buffer-doel) of expliciet gekoppeld worden aan één van de portefeuilles van de gebruiker. `onDelete: SetNull` zorgt dat het doel niet verloren gaat als de portefeuille verwijderd wordt — de koppeling vervalt, maar de horizon/inleg/projectie blijven bestaan.
 
 ---
 
@@ -192,11 +196,32 @@ User kan handmatig overschrijven via `expectedAnnualReturn`.
 
 ---
 
-## 9. Toekomstige uitbreidingen
+## 9. Module 5 — Portfolio-koppeling (mei 2026)
+
+**Spec-eis** (Module 5): *"Per doel ... gekoppelde portefeuille indien mogelijk."*
+
+**Implementatie** (additief, geen rewrite):
+- `FinancialGoal.portfolioId` (nullable) + `Portfolio.financialGoals` reverse-relation.
+- Migration: [`prisma/migrations/20260517190000_add_goal_portfolio_link`](../prisma/migrations/20260517190000_add_goal_portfolio_link/migration.sql) — single nullable column + FK met `ON DELETE SET NULL` + index.
+- Server actions (`createGoalAction` / `updateGoalAction`) accepteren `portfolioId?: string | null` en valideren ownership: alleen portefeuilles van de huidige user mogen gekoppeld worden. Bij delete van de portfolio valt het veld terug op `null` zonder dat het doel verloren gaat.
+- UI:
+  - `GoalForm`: extra `<select>` "Gekoppelde portefeuille (optioneel)" dat alleen verschijnt als de user 1+ portefeuilles heeft.
+  - `GoalCard`: subtiele "🔗 Gekoppeld aan …"-regel onder de meta-rij wanneer `portfolioId` gezet is.
+  - Detail-pagina: portfolio-naam in de page-header description.
+
+**Waarom nullable + SetNull**: een cash-buffer- of studiedoel staat vaak los van een beleggings-portefeuille. De koppeling moet optioneel zijn zodat het doel zelfstandig blijft bestaan ook als de gebruiker portefeuilles herstructureert.
+
+**Wat de koppeling (nu) doet**: organisatie + context-display. Een gekoppeld doel wordt op zowel `/doelen` als `/doelen/[id]` zichtbaar als "bij die portefeuille". De projectie zelf blijft onveranderd — input zijn de financiële parameters van het doel, niet de portefeuille (zie test `portfolioId beïnvloedt projectie niet`).
+
+**Wat de koppeling (later) kan doen**: live `currentAmount` afleiden uit de portfolio-waarde × goal-fractie. Dit zit in §10 (Toekomst).
+
+---
+
+## 10. Toekomstige uitbreidingen
 
 | Idee | Waarom |
 |---|---|
-| **Portfolio-link**: koppel goal-currentAmount aan een fractie van het portfolio | Laat de waarde meebewegen met markt zonder handmatige update |
+| **Portfolio-link → live waarde**: koppel goal-currentAmount aan een fractie van het gekoppelde portfolio | Veld-koppeling staat er (Module 5), volgende stap: laat de waarde meebewegen met markt zonder handmatige update |
 | **Inflatie-reëel** vs nominaal | Optie om doel + projectie in koopkracht-equivalent te tonen |
 | **Monte Carlo per goal** | Probability-of-success in plaats van 3 vaste scenario's; kan reuse maken van M18 |
 | **Tussendoelen** (milestones) | "10% bereikt → notify" / 25% / 50% — gamification + motivatie |

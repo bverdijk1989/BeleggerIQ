@@ -34,6 +34,7 @@ function rowToDomain(row: PrismaGoal): FinancialGoal {
     riskProfile: row.riskProfile as RiskTolerance,
     baseCurrency: row.baseCurrency as Currency,
     description: row.description,
+    portfolioId: row.portfolioId ?? null,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -52,6 +53,8 @@ export interface CreateGoalInput {
   riskProfile: RiskTolerance;
   baseCurrency: Currency;
   description?: string | null;
+  /** Optionele portfolio-koppeling (Module 5). */
+  portfolioId?: string | null;
 }
 
 export interface UpdateGoalInput {
@@ -63,6 +66,7 @@ export interface UpdateGoalInput {
   expectedAnnualReturn?: number;
   riskProfile?: RiskTolerance;
   description?: string | null;
+  portfolioId?: string | null;
   isActive?: boolean;
 }
 
@@ -105,6 +109,7 @@ export const goalRepository = {
         riskProfile: input.riskProfile as PrismaRisk,
         baseCurrency: input.baseCurrency,
         description: input.description ?? null,
+        portfolioId: input.portfolioId ?? null,
       },
     });
     return rowToDomain(row);
@@ -131,6 +136,8 @@ export const goalRepository = {
         riskProfile: (patch.riskProfile as PrismaRisk | undefined) ?? undefined,
         description:
           patch.description === undefined ? undefined : patch.description,
+        portfolioId:
+          patch.portfolioId === undefined ? undefined : patch.portfolioId,
         isActive: patch.isActive ?? undefined,
       },
     });

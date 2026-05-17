@@ -17,6 +17,7 @@ function makeGoal(overrides: Partial<FinancialGoal> = {}): FinancialGoal {
     riskProfile: "BALANCED",
     baseCurrency: "EUR",
     description: null,
+    portfolioId: null,
     isActive: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -135,6 +136,23 @@ describe("computeGoalProjection — series-determinisme", () => {
     const a = computeGoalProjection({ goal: makeGoal(), asOf });
     const b = computeGoalProjection({ goal: makeGoal(), asOf });
     expect(a).toEqual(b);
+  });
+
+  it("portfolioId beïnvloedt projectie niet (puur metadata-koppeling)", () => {
+    // Module 5 spec: 'gekoppelde portefeuille indien mogelijk' is een
+    // organisatie-veld, niet een input voor de berekening. Dezelfde
+    // financiële parameters moeten exact dezelfde projectie geven —
+    // ongeacht of een portfolio gekoppeld is of niet.
+    const asOf = new Date("2026-05-10T00:00:00.000Z");
+    const unlinked = computeGoalProjection({
+      goal: makeGoal({ portfolioId: null }),
+      asOf,
+    });
+    const linked = computeGoalProjection({
+      goal: makeGoal({ portfolioId: "p-1" }),
+      asOf,
+    });
+    expect(linked).toEqual(unlinked);
   });
 });
 

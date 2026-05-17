@@ -9,6 +9,7 @@ import { GoalCard } from "@/components/goals/goal-card";
 import { Button } from "@/components/ui/button";
 import { loadGoalsForUser } from "@/lib/analytics/goals";
 import { resolveUserFromServer } from "@/lib/auth";
+import { portfolioRepository } from "@/lib/data";
 
 export const metadata = {
   title: "Financiële doelen",
@@ -39,6 +40,15 @@ export default async function DoelenPage() {
   }
 
   const result = await loadGoalsForUser({ userEmail: auth.user.email });
+
+  // Resolve portfolio-names voor de "Gekoppeld aan …"-badge per kaart.
+  const ctx = await portfolioRepository
+    .findUserContextByEmail(auth.user.email)
+    .catch(() => null);
+  const portfolios = ctx?.userId
+    ? await portfolioRepository.findByUserId(ctx.userId).catch(() => [])
+    : [];
+  const portfolioNameById = new Map(portfolios.map((p) => [p.id, p.name]));
 
   if (result.noUser) {
     return (
@@ -90,7 +100,16 @@ export default async function DoelenPage() {
         >
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {result.combined.map(({ goal, projection }) => (
-              <GoalCard key={goal.id} goal={goal} projection={projection} />
+              <GoalCard
+                key={goal.id}
+                goal={goal}
+                projection={projection}
+                portfolioName={
+                  goal.portfolioId
+                    ? portfolioNameById.get(goal.portfolioId) ?? null
+                    : null
+                }
+              />
             ))}
           </div>
         </Section>

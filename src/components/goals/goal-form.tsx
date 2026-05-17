@@ -35,6 +35,8 @@ interface Props {
   mode: "create" | "edit";
   initial?: FinancialGoal;
   defaultBaseCurrency?: Currency;
+  /** Optionele lijst van portefeuilles waar het doel aan gekoppeld kan worden. */
+  availablePortfolios?: ReadonlyArray<{ id: string; name: string }>;
 }
 
 const GOAL_TYPES: GoalType[] = [
@@ -62,7 +64,12 @@ const RISK_PROFILE_LABELS: Record<RiskTolerance, string> = {
   AGGRESSIVE: "Agressief",
 };
 
-export function GoalForm({ mode, initial, defaultBaseCurrency = "EUR" }: Props) {
+export function GoalForm({
+  mode,
+  initial,
+  defaultBaseCurrency = "EUR",
+  availablePortfolios = [],
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +98,9 @@ export function GoalForm({ mode, initial, defaultBaseCurrency = "EUR" }: Props) 
       : (DEFAULT_EXPECTED_RETURN[initial?.riskProfile ?? "BALANCED"] * 100).toString(),
   );
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [portfolioId, setPortfolioId] = useState<string>(
+    initial?.portfolioId ?? "",
+  );
 
   function onTypeChange(next: GoalType) {
     setType(next);
@@ -121,6 +131,7 @@ export function GoalForm({ mode, initial, defaultBaseCurrency = "EUR" }: Props) 
       riskProfile,
       baseCurrency: defaultBaseCurrency,
       description: description.trim() || null,
+      portfolioId: portfolioId.length > 0 ? portfolioId : null,
     };
 
     startTransition(async () => {
@@ -274,6 +285,30 @@ export function GoalForm({ mode, initial, defaultBaseCurrency = "EUR" }: Props) 
           placeholder="Bv. 'Pensioen op 67 in een mix van groei + dividend.'"
         />
       </div>
+
+      {/* Gekoppelde portefeuille — Module 5 */}
+      {availablePortfolios.length > 0 && (
+        <div className="space-y-1.5">
+          <Label>Gekoppelde portefeuille (optioneel)</Label>
+          <select
+            value={portfolioId}
+            onChange={(e) => setPortfolioId(e.target.value)}
+            className={selectClasses}
+          >
+            <option value="">Geen koppeling — doel staat los</option>
+            {availablePortfolios.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-muted-foreground">
+            Door een portefeuille te koppelen kun je later koppelen tussen
+            voortgang en holdings. Niet verplicht — een cash-buffer-doel
+            staat vaak los.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <Button type="submit" disabled={isPending}>

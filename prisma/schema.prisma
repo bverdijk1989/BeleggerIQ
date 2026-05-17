@@ -123,6 +123,7 @@ model Portfolio {
   decisionSnapshots DecisionSnapshot[]
   transactions      Transaction[]
   taxValuations     TaxValuation[]
+  financialGoals    FinancialGoal[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -834,12 +835,20 @@ model FinancialGoal {
   baseCurrency String @default("EUR")
   description  String?
 
+  /// Optioneel: gekoppelde portefeuille (Module 5 spec — "gekoppelde
+  /// portefeuille indien mogelijk"). Nullable: een doel kan ook
+  /// portfolio-onafhankelijk zijn (bv. cash-buffer). SetNull bij
+  /// delete zodat goal niet verloren gaat als de portfolio weg is.
+  portfolioId String?
+  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+
   isActive  Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId, isActive])
   @@index([userId, targetDate])
+  @@index([portfolioId])
 }
 
 // ============================================================

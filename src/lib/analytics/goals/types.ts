@@ -49,6 +49,12 @@ export interface FinancialGoal {
   riskProfile: RiskTolerance;
   baseCurrency: Currency;
   description: string | null;
+  /**
+   * Optioneel: gekoppelde portfolio-id. Een doel kan portfolio-onafhankelijk
+   * zijn (bv. cash-buffer in spaarrekening). Module 5 spec — "gekoppelde
+   * portefeuille indien mogelijk".
+   */
+  portfolioId: string | null;
   isActive: boolean;
   createdAt: ISODateString;
   updatedAt: ISODateString;

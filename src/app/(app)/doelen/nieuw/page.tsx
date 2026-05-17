@@ -34,6 +34,11 @@ export default async function NieuwDoelPage() {
     .catch(() => null);
   const baseCurrency = (ctx?.profile?.baseCurrency ?? "EUR") as Currency;
 
+  const portfolios = ctx?.userId
+    ? await portfolioRepository.findByUserId(ctx.userId).catch(() => [])
+    : [];
+  const availablePortfolios = portfolios.map((p) => ({ id: p.id, name: p.name }));
+
   return (
     <>
       <PageHeader
@@ -45,7 +50,11 @@ export default async function NieuwDoelPage() {
         title="Doel-instellingen"
         description="Velden zijn verplicht tenzij anders aangegeven. Verwacht rendement past zich automatisch aan je risicoprofiel aan."
       >
-        <GoalForm mode="create" defaultBaseCurrency={baseCurrency} />
+        <GoalForm
+          mode="create"
+          defaultBaseCurrency={baseCurrency}
+          availablePortfolios={availablePortfolios}
+        />
       </Section>
     </>
   );

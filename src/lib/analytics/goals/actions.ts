@@ -36,6 +36,8 @@ export interface CreateGoalActionInput {
   riskProfile: RiskTolerance;
   baseCurrency: Currency;
   description?: string | null;
+  /** Optionele koppeling aan een portefeuille (Module 5 spec). */
+  portfolioId?: string | null;
 }
 
 export async function createGoalAction(
@@ -51,6 +53,11 @@ export async function createGoalAction(
   const validation = validate(input);
   if (validation) return { ok: false, error: validation };
 
+  const portfolioId = await resolvePortfolioId(ctx.userId, input.portfolioId);
+  if (portfolioId === "INVALID") {
+    return { ok: false, error: "Gekozen portefeuille niet gevonden" };
+  }
+
   const goal = await goalRepository.create({
     userId: ctx.userId,
     type: input.type,
@@ -64,6 +71,7 @@ export async function createGoalAction(
     riskProfile: input.riskProfile,
     baseCurrency: input.baseCurrency,
     description: input.description ?? null,
+    portfolioId,
   });
 
   revalidatePath("/dashboard");
@@ -89,6 +97,16 @@ export async function updateGoalAction(
   const validation = validate(input, { partial: true });
   if (validation) return { ok: false, error: validation };
 
+  // portfolioId: undefined → niet wijzigen; null → ontkoppelen; string → koppelen.
+  let portfolioId: string | null | undefined = undefined;
+  if (input.portfolioId !== undefined) {
+    const resolved = await resolvePortfolioId(ctx.userId, input.portfolioId);
+    if (resolved === "INVALID") {
+      return { ok: false, error: "Gekozen portefeuille niet gevonden" };
+    }
+    portfolioId = resolved;
+  }
+
   const updated = await goalRepository.update(ctx.userId, input.goalId, {
     name: input.name?.trim(),
     targetAmount: input.targetAmount,
@@ -98,6 +116,7 @@ export async function updateGoalAction(
     expectedAnnualReturn: input.expectedAnnualReturn,
     riskProfile: input.riskProfile,
     description: input.description ?? undefined,
+    portfolioId,
   });
   if (!updated) return { ok: false, error: "Doel niet gevonden" };
 
@@ -123,6 +142,25 @@ export async function deleteGoalAction(input: {
   revalidatePath("/dashboard");
   revalidatePath("/doelen");
   return { ok: true };
+}
+
+// ============================================================
+//  Helpers
+// ============================================================
+
+/**
+ * Zet de aangeleverde `portfolioId` om naar wat naar de repository mag:
+ *  - `undefined` of `null` → ontkoppelen (`null`)
+ *  - `string` die de user bezit → die id (`string`)
+ *  - `string` die de user NIET bezit → `"INVALID"` (signaal voor caller)
+ */
+async function resolvePortfolioId(
+  userId: string,
+  raw: string | null | undefined,
+): Promise<string | null | "INVALID"> {
+  if (raw === undefined || raw === null || raw.length === 0) return null;
+  const owned = await portfolioRepository.findByUserId(userId);
+  return owned.some((p) => p.id === raw) ? raw : "INVALID";
 }
 
 // ============================================================

@@ -66,6 +66,14 @@ export default async function GoalDetailPage({ params }: Props) {
     notFound();
   }
 
+  const portfolios = await portfolioRepository
+    .findByUserId(ctx.userId)
+    .catch(() => []);
+  const availablePortfolios = portfolios.map((p) => ({ id: p.id, name: p.name }));
+  const linkedPortfolio = goal.portfolioId
+    ? portfolios.find((p) => p.id === goal.portfolioId) ?? null
+    : null;
+
   const projection = computeGoalProjection({ goal, asOf: new Date() });
   const targetDate = new Date(goal.targetDate);
 
@@ -74,7 +82,11 @@ export default async function GoalDetailPage({ params }: Props) {
       <PageHeader
         eyebrow={GOAL_TYPE_LABELS[goal.type]}
         title={goal.name}
-        description={goal.description ?? "Detail van je financiële doel."}
+        description={
+          linkedPortfolio
+            ? `Gekoppeld aan portefeuille "${linkedPortfolio.name}". ${goal.description ?? "Detail van je financiële doel."}`
+            : goal.description ?? "Detail van je financiële doel."
+        }
         actions={<FeasibilityBadge tier={projection.feasibility.tier} />}
       />
 
@@ -196,7 +208,12 @@ export default async function GoalDetailPage({ params }: Props) {
         title="Wijzigen of verwijderen"
         description="Pas het doel aan, of verwijder 'em wanneer je wilt."
       >
-        <GoalForm mode="edit" initial={goal} defaultBaseCurrency={goal.baseCurrency} />
+        <GoalForm
+          mode="edit"
+          initial={goal}
+          defaultBaseCurrency={goal.baseCurrency}
+          availablePortfolios={availablePortfolios}
+        />
       </Section>
     </>
   );
