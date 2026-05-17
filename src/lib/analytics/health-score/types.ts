@@ -68,6 +68,39 @@ export interface HealthRecommendation {
 
 export type HealthGrade = "A" | "B" | "C" | "D" | "F";
 
+export type DataQualityTier = "high" | "medium" | "low" | "insufficient";
+
+/**
+ * Datakwaliteit-samenvatting — Module 1: 10e expliciete beoordeling.
+ * Combineert (1) hoeveel components data hebben, (2) effectief gewicht
+ * dat is overgebleven na renormalisatie, en (3) gemiddelde per-component
+ * confidence.
+ *
+ * Pure afgeleide metric — telt NIET mee in `totalScore` (zou dubbele
+ * penalty geven omdat per-component confidence al in de
+ * weight-renormalisatie zit). De gebruiker ziet dit naast de score als
+ * "data-zekerheid: hoog/middel/laag".
+ *
+ * Tiers:
+ *  - `high`         score ≥ 80 — score is stevig onderbouwd
+ *  - `medium`       score 55-79 — meeste components actief, OK confidence
+ *  - `low`          score 30-54 — meerdere components ontbreken of zwakke confidence
+ *  - `insufficient` score < 30 — te weinig data; behandel score met scepsis
+ */
+export interface PortfolioHealthDataQuality {
+  /** 0..100 — combined score uit coverage + confidence. */
+  score: number;
+  tier: DataQualityTier;
+  activeComponents: number;
+  totalComponents: number;
+  /** activeComponents / totalComponents (0..1). */
+  coverageRatio: number;
+  /** Gewogen gemiddelde confidence van actieve components (0..1). */
+  meanConfidence: number;
+  /** Waarschuwingstekst wanneer `low` of `insufficient`; anders null. */
+  warning: string | null;
+}
+
 export interface PortfolioHealthScore {
   portfolioId: string;
   asOf: ISODateString;
@@ -85,6 +118,12 @@ export interface PortfolioHealthScore {
   components: HealthComponent[];
   /** Total weight gebruikt — wanneer een component "no_data" is, valt 'em uit en wordt het totaal renormaliseert. */
   effectiveWeight: number;
+  /**
+   * Datakwaliteit-samenvatting — Module 1 expliciete 10e beoordeling.
+   * Afgeleid uit components + confidence + coverage. Geen invloed op
+   * `totalScore`; wel voor UI-disclosure.
+   */
+  dataQuality: PortfolioHealthDataQuality;
 }
 
 /**

@@ -149,6 +149,59 @@ Plus output-shape tests (10 components in vaste volgorde, top-3 sortering, A/F g
 
 ---
 
+## 8b. Data-quality als 10e expliciete beoordeling (Module 1 hardening)
+
+**Probleem dat opgelost wordt**: spec van Module 1 vraagt "Datakwaliteit/coverage" als 10e component. Voorheen zat datakwaliteit alleen impliciet in per-component `confidence` + renormalisatie. De gebruiker zag niet één samenvattend getal "hoe stevig is deze score?".
+
+**Oplossing**: afgeleide metric `PortfolioHealthDataQuality` op `PortfolioHealthScore`. Geen 11e component met eigen weight (zou dubbele penalty geven), maar een eerstelijns-zichtbare 0-100 score met tier (`high`/`medium`/`low`/`insufficient`).
+
+### Formule
+```
+presenceComponent = (coverageRatio + effectiveWeight) / 2
+combined = presenceComponent × 0.5 + meanConfidence × 0.5
+score = round(combined × 100)
+```
+
+Waarbij:
+- `coverageRatio` = actieve components / 10
+- `effectiveWeight` = som van weights van actieve components na renormalisatie (0..1)
+- `meanConfidence` = gewogen gemiddelde van per-component confidence (0..1)
+
+### Tier-drempels
+
+| Score | Tier | Betekenis |
+|---|---|---|
+| ≥ 80 | `high` | Score is stevig onderbouwd; lees 'em direct |
+| 55–79 | `medium` | Meeste components actief, redelijke confidence |
+| 30–54 | `low` | Meerdere components ontbreken; ±5–10 punten marge |
+| < 30 | `insufficient` | Te weinig data; behandel score met scepsis |
+
+### UI-disclosure
+
+- **HealthScoreCard** (dashboard): badge "Data hoog/middel/laag · {score}" naast totaalscore. Bij `low`/`insufficient`: amber warning-banner met advies-tekst.
+- **Detail-pagina** (`/portfolio-health`): aparte sectie "Datakwaliteit" met de 3 bouwstenen zichtbaar (coverage / mean confidence / effective weight) + uitleg waarom 'em NIET meetelt in totaalscore.
+
+### Waarom geen 11e gewogen component?
+
+Per-component confidence wordt al verwerkt in de renormalisatie: een component met confidence 0.3 levert minder bruikbaar gewicht dan eentje met 0.9. Een 11e "data quality"-component met eigen weight zou:
+1. Dubbele penalty veroorzaken (confidence telt 2× mee)
+2. Geen extra informatie introduceren — alleen ruis op `totalScore`
+
+Pure afgeleide metric is **transparanter en correcter**: gebruiker ziet "score = X, met data-zekerheid Y" als orthogonale signalen.
+
+### Tests
+
+`engine.test.ts` heeft een `computeDataQualityScore`-describe-block met 7 tests:
+- Alle 10 actief + confidence 1.0 → tier high, score 100
+- 50% no_data + confidence 0.5 → tier low + warning
+- 8/10 actief + hoge confidence → medium/high
+- 0 actief → insufficient + warning
+- Score binnen [0..100]
+- `dataQuality` aanwezig in `PortfolioHealthScore`-output
+- `dataQuality` beïnvloedt `totalScore` NIET (deterministisch geverifieerd)
+
+---
+
 ## 9. Toekomstige uitbreidingen
 
 | Idee | Waarom waardevol |

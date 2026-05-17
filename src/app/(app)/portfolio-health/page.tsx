@@ -197,6 +197,94 @@ export default async function PortfolioHealthPage() {
       )}
 
       <Section
+        title="Datakwaliteit"
+        description="Hoe zeker is deze score? Combinatie van coverage + per-component confidence."
+      >
+        <div
+          className={`rounded-lg border p-4 text-sm ${
+            score.dataQuality.tier === "high"
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : score.dataQuality.tier === "medium"
+                ? "border-border/60 bg-surface/40"
+                : score.dataQuality.tier === "low"
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-destructive/40 bg-destructive/5"
+          }`}
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Data-zekerheidsscore
+              </p>
+              <p className="mt-1 font-mono text-2xl font-bold text-foreground">
+                {score.dataQuality.score}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  / 100
+                </span>
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase tracking-[0.18em]"
+            >
+              {score.dataQuality.tier === "high"
+                ? "Hoog"
+                : score.dataQuality.tier === "medium"
+                  ? "Middel"
+                  : score.dataQuality.tier === "low"
+                    ? "Laag"
+                    : "Onvoldoende"}
+            </Badge>
+          </div>
+
+          {score.dataQuality.warning && (
+            <p className="mt-3 text-xs text-foreground">
+              {score.dataQuality.warning}
+            </p>
+          )}
+
+          <div className="mt-4 grid grid-cols-2 gap-3 text-xs lg:grid-cols-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Coverage
+              </p>
+              <p className="mt-1 font-mono text-foreground">
+                {score.dataQuality.activeComponents} van{" "}
+                {score.dataQuality.totalComponents} componenten
+                <span className="ml-1 text-muted-foreground">
+                  ({Math.round(score.dataQuality.coverageRatio * 100)}%)
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Gemiddelde confidence
+              </p>
+              <p className="mt-1 font-mono text-foreground">
+                {Math.round(score.dataQuality.meanConfidence * 100)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Bruikbaar gewicht
+              </p>
+              <p className="mt-1 font-mono text-foreground">
+                {Math.round(score.effectiveWeight * 100)}%
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Datakwaliteit telt <strong className="text-foreground">niet</strong>{" "}
+            mee in de totaalscore — anders zouden we missende data dubbel
+            straffen. Het is een afgeleide indicatie hoe stevig de score
+            staat. Bij lage tier: lees de totaalscore met een marge van
+            ±5–10 punten.
+          </p>
+        </div>
+      </Section>
+
+      <Section
         title="Methodologie"
         description="Hoe de score is opgebouwd."
       >

@@ -33,6 +33,7 @@ import type {
   HealthComponentKey,
   HealthGrade,
   HealthRecommendation,
+  PortfolioHealthDataQuality,
   PortfolioHealthScore,
 } from "./types";
 import { DEFAULT_HEALTH_WEIGHTS } from "./types";
@@ -159,6 +160,64 @@ function runAllScorers(
 }
 
 /**
+ * Module 1: bereken de afgeleide datakwaliteit-samenvatting.
+ *
+ * Pure functie zonder DB/IO. Combineert drie signalen:
+ *  1. **Coverage** — fractie components met data (active / total)
+ *  2. **Effective weight** — fractie van originele weight dat bijdraagt
+ *  3. **Mean confidence** — gewogen gemiddelde van per-component confidence
+ *
+ * Formule: 50% weight op coverage-component (gemiddelde van coverageRatio
+ * en effectiveWeight), 50% op meanConfidence. Beide getallen 0..1 →
+ * vermenigvuldigd met 100 voor 0..100 schaal.
+ *
+ * Tiers volgens drempels in `PortfolioHealthDataQuality`-types.
+ */
+export function computeDataQualityScore(
+  components: HealthComponent[],
+  effectiveWeight: number,
+  meanConfidence: number,
+): PortfolioHealthDataQuality {
+  const total = components.length;
+  const active = components.filter((c) => c.status !== "no_data").length;
+  const coverageRatio = total > 0 ? active / total : 0;
+
+  // Combined score: 50% data-presence (gemiddelde van coverage + effectiveWeight),
+  // 50% gemeten confidence.
+  const presenceComponent = (coverageRatio + effectiveWeight) / 2;
+  const combined = presenceComponent * 0.5 + meanConfidence * 0.5;
+  const score = Math.round(combined * 100);
+
+  let tier: PortfolioHealthDataQuality["tier"];
+  let warning: string | null = null;
+  if (score >= 80) {
+    tier = "high";
+  } else if (score >= 55) {
+    tier = "medium";
+  } else if (score >= 30) {
+    tier = "low";
+    warning =
+      "Datakwaliteit is matig: meerdere componenten missen data of hebben lage zekerheid. " +
+      "Lees de score met een marge van ±5–10 punten.";
+  } else {
+    tier = "insufficient";
+    warning =
+      "Te weinig data voor een betrouwbare score. Voeg meer holdings of fundamentals " +
+      "toe en de score wordt scherper.";
+  }
+
+  return {
+    score,
+    tier,
+    activeComponents: active,
+    totalComponents: total,
+    coverageRatio: Math.round(coverageRatio * 100) / 100,
+    meanConfidence: Math.round(meanConfidence * 100) / 100,
+    warning,
+  };
+}
+
+/**
  * Hoofd-API: bereken de Portfolio Health Score.
  *
  * @param input  Ge-aggregeerde input uit `loader.ts`.
@@ -173,6 +232,11 @@ export function computePortfolioHealthScore(
   const grade = gradeFromScore(total);
   const headline = buildHeadline(components, total);
   const topRecommendations = pickTopRecommendations(components);
+  const dataQuality = computeDataQualityScore(
+    components,
+    effectiveWeight,
+    totalConfidence,
+  );
 
   return {
     portfolioId: input.portfolioId,
@@ -184,5 +248,6 @@ export function computePortfolioHealthScore(
     topRecommendations,
     components,
     effectiveWeight,
+    dataQuality,
   };
 }

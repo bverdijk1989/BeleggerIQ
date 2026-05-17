@@ -58,6 +58,15 @@ export function makeHealthScoreFixture(
       },
     ],
     effectiveWeight: 0.95,
+    dataQuality: {
+      score: 85,
+      tier: "high",
+      activeComponents: 9,
+      totalComponents: 10,
+      coverageRatio: 0.9,
+      meanConfidence: 0.85,
+      warning: null,
+    },
   };
   return { ...base, ...overrides };
 }

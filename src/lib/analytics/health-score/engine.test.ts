@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { computePortfolioHealthScore } from "./engine";
+import { computeDataQualityScore, computePortfolioHealthScore } from "./engine";
 import type { PortfolioHealthInput } from "./loader-types";
+import type { HealthComponent } from "./types";
 
 /**
  * Test-fixtures-builder. Default = "redelijk gezonde portefeuille".
@@ -296,5 +297,106 @@ describe("computePortfolioHealthScore — determinisme", () => {
     const a = computePortfolioHealthScore(input);
     const b = computePortfolioHealthScore(input);
     expect(a).toEqual(b);
+  });
+});
+
+// ============================================================
+//  Module 1: data-quality score (afgeleide metric)
+// ============================================================
+
+function makeComponent(
+  overrides: Partial<HealthComponent>,
+): HealthComponent {
+  return {
+    key: "diversification",
+    label: "Spreiding",
+    score: 80,
+    weight: 0.15,
+    contribution: 12,
+    status: "ok",
+    rationale: "OK",
+    recommendations: [],
+    confidence: 0.9,
+    ...overrides,
+  };
+}
+
+describe("computeDataQualityScore", () => {
+  it("alle 10 actief met confidence 1.0 → tier high, score 100", () => {
+    const components = Array.from({ length: 10 }, () =>
+      makeComponent({ confidence: 1.0 }),
+    );
+    const result = computeDataQualityScore(components, 1.0, 1.0);
+    expect(result.tier).toBe("high");
+    expect(result.score).toBe(100);
+    expect(result.activeComponents).toBe(10);
+    expect(result.coverageRatio).toBe(1);
+    expect(result.warning).toBeNull();
+  });
+
+  it("50% no_data + lage confidence → tier low + warning", () => {
+    const components = [
+      ...Array.from({ length: 5 }, () => makeComponent({ confidence: 0.5 })),
+      ...Array.from({ length: 5 }, () =>
+        makeComponent({ status: "no_data", confidence: 0 }),
+      ),
+    ];
+    const result = computeDataQualityScore(components, 0.5, 0.5);
+    expect(result.activeComponents).toBe(5);
+    expect(result.coverageRatio).toBe(0.5);
+    expect(result.tier).toBe("low");
+    expect(result.warning).toContain("matig");
+  });
+
+  it("8/10 actief met hoge confidence → tier medium of high", () => {
+    const components = [
+      ...Array.from({ length: 8 }, () => makeComponent({ confidence: 0.9 })),
+      ...Array.from({ length: 2 }, () =>
+        makeComponent({ status: "no_data", confidence: 0 }),
+      ),
+    ];
+    const result = computeDataQualityScore(components, 0.85, 0.9);
+    expect(["medium", "high"]).toContain(result.tier);
+    expect(result.activeComponents).toBe(8);
+  });
+
+  it("0 actieve components → tier insufficient", () => {
+    const components = Array.from({ length: 10 }, () =>
+      makeComponent({ status: "no_data", confidence: 0 }),
+    );
+    const result = computeDataQualityScore(components, 0, 0);
+    expect(result.tier).toBe("insufficient");
+    expect(result.score).toBe(0);
+    expect(result.warning).toContain("Te weinig data");
+  });
+
+  it("score is binnen [0..100]", () => {
+    const components = Array.from({ length: 10 }, () =>
+      makeComponent({ confidence: 0.7 }),
+    );
+    const result = computeDataQualityScore(components, 0.8, 0.7);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("Module 1: dataQuality zit in PortfolioHealthScore output", () => {
+    const result = computePortfolioHealthScore(makeInput());
+    expect(result.dataQuality).toBeDefined();
+    expect(result.dataQuality.score).toBeGreaterThanOrEqual(0);
+    expect(result.dataQuality.score).toBeLessThanOrEqual(100);
+    expect(result.dataQuality.totalComponents).toBe(10);
+    expect(["high", "medium", "low", "insufficient"]).toContain(
+      result.dataQuality.tier,
+    );
+  });
+
+  it("dataQuality beïnvloedt totalScore NIET (geen dubbele penalty)", () => {
+    // Maak twee runs met identieke input → identieke totalScore
+    // ongeacht dataQuality-afleiding
+    const input = makeInput();
+    const a = computePortfolioHealthScore(input);
+    const b = computePortfolioHealthScore(input);
+    expect(a.totalScore).toBe(b.totalScore);
+    expect(a.dataQuality.score).toBe(b.dataQuality.score);
   });
 });

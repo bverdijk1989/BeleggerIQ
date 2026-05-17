@@ -11,12 +11,27 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type {
+  DataQualityTier,
   HealthGrade,
   PortfolioHealthScore,
 } from "@/lib/analytics/health-score";
 import { cn } from "@/lib/utils";
 
 import { TONE_STYLES, type CockpitTone } from "./tone";
+
+const DATA_QUALITY_LABEL: Record<DataQualityTier, string> = {
+  high: "Data hoog",
+  medium: "Data middel",
+  low: "Data laag",
+  insufficient: "Data onvoldoende",
+};
+
+const DATA_QUALITY_TONE: Record<DataQualityTier, CockpitTone> = {
+  high: "good",
+  medium: "neutral",
+  low: "warning",
+  insufficient: "critical",
+};
 
 /**
  * HealthScoreCard — compacte 10-component portfolio health score op het
@@ -49,10 +64,10 @@ export function HealthScoreCard({
   const tone = GRADE_TONE[score.grade];
   const styles = TONE_STYLES[tone];
   const topRec = score.topRecommendations[0] ?? null;
-  const lowConfidence = score.confidence < 0.5;
 
-  // Tel actieve components voor de "X/10 components" footer-stat.
-  const activeCount = score.components.filter((c) => c.status !== "no_data").length;
+  // Module 1: data-zekerheid prominent als badge naast de score.
+  const dq = score.dataQuality;
+  const dqTone = TONE_STYLES[DATA_QUALITY_TONE[dq.tier]];
 
   return (
     <Card className={cn("border", styles.container)}>
@@ -70,13 +85,22 @@ export function HealthScoreCard({
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <div className="flex items-baseline gap-2">
-          <span
-            className={cn("font-mono text-3xl font-bold tabular-nums", styles.value)}
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span
+              className={cn("font-mono text-3xl font-bold tabular-nums", styles.value)}
+            >
+              {Math.round(score.totalScore)}
+            </span>
+            <span className="text-xs text-muted-foreground">/ 100</span>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn("text-[10px]", dqTone.chip)}
+            title={dq.warning ?? "Datakwaliteit is goed"}
           >
-            {Math.round(score.totalScore)}
-          </span>
-          <span className="text-xs text-muted-foreground">/ 100</span>
+            {DATA_QUALITY_LABEL[dq.tier]} · {dq.score}
+          </Badge>
         </div>
 
         {topRec && (
@@ -95,10 +119,16 @@ export function HealthScoreCard({
           </div>
         )}
 
+        {dq.warning && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-amber-200">
+            {dq.warning}
+          </p>
+        )}
+
         <div className="flex items-center justify-between gap-2 pt-1">
           <p className="text-[10px] text-muted-foreground">
-            {activeCount}/10 components met data{" "}
-            {lowConfidence ? `· conf ${Math.round(score.confidence * 100)}%` : ""}
+            {dq.activeComponents}/{dq.totalComponents} components met data ·
+            conf {Math.round(dq.meanConfidence * 100)}%
           </p>
           <Link
             href={detailHref}
