@@ -5,7 +5,7 @@
  * memberships, rollen, white-label-config en feature-flags op type-
  * niveau zonder NU al Prisma-tabellen toe te voegen. De runtime-laag
  * leest uit JSON-blobs en env-vars; migratie naar dedicated tabellen
- * staat beschreven in `docs/ENTERPRISE_FOUNDATION.md`.
+ * staat beschreven in `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`.
  *
  * **Bewuste keuze**: geen "grote rewrite". Het bestaande User → Portfolio-
  * model blijft de canonical structuur voor individuele beleggers.
@@ -80,7 +80,7 @@ export type OrgPermission =
 /**
  * Organisatie-record. Wordt in v1 niet gepersisteerd in DB; gebruikt
  * voor type-grenzen + service-laag. Migratie-pad in
- * `docs/ENTERPRISE_FOUNDATION.md`.
+ * `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`.
  */
 export interface Organization {
   id: string;

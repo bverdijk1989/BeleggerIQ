@@ -31,7 +31,7 @@ export const dynamic = "force-dynamic";
  *
  * **Status**: nog geen multi-client functionaliteit operationeel; deze
  * pagina laat zien WAT er al staat (rollen, feature-flags, disclaimers,
- * audit-context). Volledige UI komt v2 — zie `docs/ENTERPRISE_FOUNDATION.md`.
+ * audit-context). Volledige UI komt v2 — zie `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`.
  */
 export default async function AdvisorPage() {
   const auth = await resolveUserFromServer();
@@ -107,7 +107,7 @@ export default async function AdvisorPage() {
           De multi-tenant DB-laag wordt geactiveerd zodra de eerste pilot-
           organisatie is bevestigd. Migratie-pad in{" "}
           <a href="/methodologie" className="underline">
-            docs/ENTERPRISE_FOUNDATION.md
+            docs/ADVISOR_ENTERPRISE_FOUNDATION.md
           </a>
           .
         </p>

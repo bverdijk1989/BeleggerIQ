@@ -3,7 +3,7 @@
  *
  * **Status**: voorbereidende laag. Types + helpers, nog geen Prisma-
  * tabellen of UI-flows die productie-data raken. Migratie-pad in
- * `docs/ENTERPRISE_FOUNDATION.md`.
+ * `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`.
  */
 
 export * from "./types";

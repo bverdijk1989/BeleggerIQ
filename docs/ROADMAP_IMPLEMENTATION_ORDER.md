@@ -319,7 +319,7 @@ Verlaagt drop-off + maakt productie-UI professioneel.
 **Doel**: van type-laag (Module 14) naar werkelijke multi-tenant DB-state.
 
 **Bestanden geraakt**:
-- `prisma/schema.prisma` — voeg `Organization` + `OrgMembership` models (schema in `docs/ENTERPRISE_FOUNDATION.md`)
+- `prisma/schema.prisma` — voeg `Organization` + `OrgMembership` models (schema in `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`)
 - NIEUW: `prisma/migrations/<date>_add_enterprise_orgs/migration.sql`
 - NIEUW: `src/lib/data/organization-repository.ts`
 - `src/lib/enterprise/types.ts` — bind Prisma-types aan bestaande TypeScript-types
@@ -498,7 +498,7 @@ Backlog (M38-M47) is fase-onafhankelijk; pak items wanneer prioriteit opduikt.
 Voor elke nieuwe sprint-planning:
 1. Kies module uit deze doc
 2. Lees `IMPLEMENTATION_AUDIT.md` voor context van bestaande architectuur
-3. Open de specifieke module-doc in `docs/` indien aanwezig (bv. `ENTERPRISE_FOUNDATION.md` voor M33)
+3. Open de specifieke module-doc in `docs/` indien aanwezig (bv. `ADVISOR_ENTERPRISE_FOUNDATION.md` voor M33)
 4. Volg "Bestanden geraakt"-lijst + "Hergebruik"-lijst
 5. Run lint/typecheck/tests na elke commit
 6. Update deze roadmap-doc bij significante wijziging

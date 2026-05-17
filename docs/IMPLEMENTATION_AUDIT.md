@@ -217,7 +217,7 @@ Status na 19 modules + 10/10-sweep + live deploy:
 9. **Notifications-feed UI** — `NotificationDelivery`-tabel bestaat, alleen UI ontbreekt.
 
 **Hoge risk** (vereist Prisma-migratie of architectuur-werk):
-10. **`Organization` + `OrgMembership` tabellen** — Module 14-types klaar, schema in `docs/ENTERPRISE_FOUNDATION.md`. Activeren bij pilot.
+10. **`Organization` + `OrgMembership` tabellen** — Module 14-types klaar, schema in `docs/ADVISOR_ENTERPRISE_FOUNDATION.md`. Activeren bij pilot.
 11. **PDF-export voor advisor-rapporten** — vereist pdfmake/Puppeteer + ReportSpec is data-ready.
 12. **Custom-domain white-label** — DNS-flow + cert + multi-tenant routing. v3-werk.
 13. **Sliding session-refresh** — raakt 40 callsites van `resolveUser`. Carefully phased rollout.
