@@ -506,6 +506,102 @@ export function generateWatchlistAlerts(
 }
 
 // ============================================================
+//  8b. Watchlist intelligence (Module 9) — signaal-gedreven alerts
+// ============================================================
+
+/**
+ * Een vereenvoudigde view van een `WatchlistIntelligenceReport` —
+ * we vermijden een runtime-dependency op @/lib/watchlist-intelligence
+ * en accepteren een plain shape (deze generator is pure functie).
+ */
+export interface WatchlistIntelligenceHit {
+  ticker: string;
+  name: string;
+  tier: "STRONG_OPPORTUNITY" | "POSITIVE" | "NEUTRAL" | "WAIT";
+  /** De sterkste positieve signaal (label + strength + rationale). */
+  topPositive: {
+    label: string;
+    rationale: string;
+    strength: number;
+  } | null;
+  /** De sterkste negatieve signaal (voor mixed-tier-alerts). */
+  topNegative: {
+    label: string;
+    rationale: string;
+    strength: number;
+  } | null;
+}
+
+export interface WatchlistIntelligenceAlertInput {
+  userId: string;
+  asOf: ISODateString;
+  hits: ReadonlyArray<WatchlistIntelligenceHit>;
+}
+
+/**
+ * Module 9: signaal-gedreven watchlist alerts. Anders dan
+ * `generateWatchlistAlerts` (die op prijs-thresholds tikt) reageert
+ * deze generator op intelligence-tier-shifts: STRONG_OPPORTUNITY
+ * triggert een alert, en mixed-tiers met een sterk negatief signaal
+ * geven een attentie-alert ("kansrijk maar kwetsbaar").
+ */
+const STRENGTH_TRIGGER = 60;
+
+export function generateWatchlistIntelligenceAlerts(
+  input: WatchlistIntelligenceAlertInput,
+): AlertCandidate[] {
+  const out: AlertCandidate[] = [];
+  const day = isoDay(input.asOf);
+  for (const h of input.hits) {
+    if (h.tier === "STRONG_OPPORTUNITY" && h.topPositive) {
+      out.push(
+        makeCandidate({
+          type: "WATCHLIST_OPPORTUNITY",
+          severity: "INFO",
+          dedupeKey: `WATCHLIST_INTEL:${input.userId}:${day}:${h.ticker}:STRONG`,
+          title: `${h.ticker}: sterke kans — ${h.topPositive.label.toLowerCase()}`,
+          body: `${h.name}: ${h.topPositive.rationale} Check de volledige breakdown op /watchlist voordat je iets doet — een meting is geen koopsignaal.`,
+          link: "/watchlist",
+          context: {
+            ticker: h.ticker,
+            tier: h.tier,
+            topSignal: h.topPositive.label,
+          },
+          occurredAt: input.asOf,
+        }),
+      );
+      continue;
+    }
+    // Mixed: sterke positief signal + sterke negatief signal = aandacht-alert.
+    if (
+      h.topPositive &&
+      h.topNegative &&
+      h.topPositive.strength >= STRENGTH_TRIGGER &&
+      h.topNegative.strength >= STRENGTH_TRIGGER
+    ) {
+      out.push(
+        makeCandidate({
+          type: "WATCHLIST_OPPORTUNITY",
+          severity: "INFO",
+          dedupeKey: `WATCHLIST_INTEL:${input.userId}:${day}:${h.ticker}:MIXED`,
+          title: `${h.ticker}: gemengd beeld — kans + risico`,
+          body: `Plus: ${h.topPositive.rationale} Min: ${h.topNegative.rationale} Beoordeel zelf of dit bij je horizon en risicoprofiel past.`,
+          link: "/watchlist",
+          context: {
+            ticker: h.ticker,
+            tier: h.tier,
+            positive: h.topPositive.label,
+            negative: h.topNegative.label,
+          },
+          occurredAt: input.asOf,
+        }),
+      );
+    }
+  }
+  return out;
+}
+
+// ============================================================
 //  9. Valuation signal
 // ============================================================
 

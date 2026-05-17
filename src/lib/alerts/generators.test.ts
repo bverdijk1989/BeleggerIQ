@@ -11,6 +11,7 @@ import {
   generatePriceMoveAlerts,
   generateValuationSignalAlerts,
   generateWatchlistAlerts,
+  generateWatchlistIntelligenceAlerts,
 } from "./generators";
 
 const ASOF = "2026-05-10T12:00:00.000Z";
@@ -338,6 +339,99 @@ describe("generateWatchlistAlerts", () => {
     });
     expect(out[0]?.severity).toBe("INFO");
     expect(out[0]?.title).toContain("ASML");
+  });
+});
+
+describe("generateWatchlistIntelligenceAlerts (Module 9)", () => {
+  it("STRONG_OPPORTUNITY-tier triggert een alert met top-positive signal", () => {
+    const out = generateWatchlistIntelligenceAlerts({
+      userId: USER,
+      asOf: ASOF,
+      hits: [
+        {
+          ticker: "ASML",
+          name: "ASML",
+          tier: "STRONG_OPPORTUNITY",
+          topPositive: {
+            label: "Waardering",
+            rationale: "Value-score 80, P/E 15.",
+            strength: 75,
+          },
+          topNegative: null,
+        },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.type).toBe("WATCHLIST_OPPORTUNITY");
+    expect(out[0]?.title.toLowerCase()).toContain("sterke kans");
+    expect(out[0]?.dedupeKey).toContain("STRONG");
+  });
+
+  it("Mixed-tier (sterke + en -) triggert aandacht-alert", () => {
+    const out = generateWatchlistIntelligenceAlerts({
+      userId: USER,
+      asOf: ASOF,
+      hits: [
+        {
+          ticker: "TSLA",
+          name: "Tesla",
+          tier: "NEUTRAL",
+          topPositive: {
+            label: "Momentum",
+            rationale: "12mnd return +35%.",
+            strength: 80,
+          },
+          topNegative: {
+            label: "Volatiliteit",
+            rationale: "Vol gestegen naar 45%.",
+            strength: 70,
+          },
+        },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.title.toLowerCase()).toContain("gemengd");
+    expect(out[0]?.dedupeKey).toContain("MIXED");
+  });
+
+  it("WAIT-tier zonder mixed → géén alert (geen ruis)", () => {
+    const out = generateWatchlistIntelligenceAlerts({
+      userId: USER,
+      asOf: ASOF,
+      hits: [
+        {
+          ticker: "X",
+          name: "X",
+          tier: "WAIT",
+          topPositive: null,
+          topNegative: null,
+        },
+      ],
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it("dedupeKey is idempotent (zelfde input → zelfde key)", () => {
+    const input = {
+      userId: USER,
+      asOf: ASOF,
+      hits: [
+        {
+          ticker: "ASML",
+          name: "ASML",
+          tier: "STRONG_OPPORTUNITY" as const,
+          topPositive: {
+            label: "Waardering",
+            rationale: "X",
+            strength: 75,
+          },
+          topNegative: null,
+        },
+      ],
+    };
+    const a = generateWatchlistIntelligenceAlerts(input);
+    const b = generateWatchlistIntelligenceAlerts(input);
+    expect(a[0]?.dedupeKey).toBe(b[0]?.dedupeKey);
   });
 });
 

@@ -410,12 +410,13 @@ describe("extractAlternativesSignal", () => {
 });
 
 describe("buildWatchlistIntelligenceReport", () => {
-  it("levert exact 7 signalen in canonical volgorde", () => {
+  it("levert alle signalen in canonical volgorde (Module 9)", () => {
     const report = buildWatchlistIntelligenceReport(makeInput());
-    expect(report.signals).toHaveLength(7);
     expect(report.signals.map((s) => s.key)).toEqual([
       ...WATCHLIST_SIGNAL_ORDER,
     ]);
+    // Module 9: 11 keys totaal (10 spec + bonus SENTIMENT_SHIFT).
+    expect(report.signals.length).toBe(WATCHLIST_SIGNAL_ORDER.length);
   });
 
   it("sterke positieve signalen → STRONG_OPPORTUNITY tier", () => {

@@ -24,6 +24,9 @@ import { WATCHLIST_SIGNAL_ORDER } from "./types";
 const POSITIVE_WEIGHT = 1;
 const NEGATIVE_WEIGHT = 1;
 
+/** Module 9: DATA_QUALITY is meta — telt niet mee in tier-score. */
+const META_SIGNAL_KEYS = new Set<WatchlistSignal["key"]>(["DATA_QUALITY"]);
+
 function deriveTier(
   signals: WatchlistSignal[],
 ): WatchlistIntelligenceReport["tier"] {
@@ -31,6 +34,7 @@ function deriveTier(
   let activeCount = 0;
   for (const s of signals) {
     if (!s.available) continue;
+    if (META_SIGNAL_KEYS.has(s.key)) continue;
     activeCount += 1;
     if (s.direction === "positive") score += s.strength * POSITIVE_WEIGHT;
     else if (s.direction === "negative") score -= s.strength * NEGATIVE_WEIGHT;

@@ -1,24 +1,30 @@
-# Watchlist Intelligence — Module 11
+# Watchlist Intelligence — Module 9
 
-Per ticker op de watchlist een rijk signaal-pakket: 7 signalen, alternatieven uit jouw eigen universum, 1-zin uitleg waarom 'em interessant of risicovol is, en automatische alerts wanneer signalen omslaan.
+Per ticker op de watchlist een rijk signaal-pakket: **11 signalen** (10 Module 9-spec + bonus sentiment), alternatieven uit jouw eigen universum, 1-zin uitleg waarom 'em interessant of risicovol is, en automatische alerts wanneer signalen omslaan.
 
 > **UX-norm**: een watchlist-rij is niet "ticker + prijs + score" — het is een coachende mini-dossier dat in 5 seconden vertelt waarom je iets in de gaten houdt.
 
 ---
 
-## 1. De 7 signalen
+## 1. De 11 signalen (Module 9-mapping)
 
-| # | Key | Wat het meet | Drempel voor positief |
-|---|---|---|---|
-| 1 | `VALUATION_IMPROVED` | factor-engine value-score + delta | level ≥70 of Δ ≥ +5pt |
-| 2 | `MOMENTUM_CHANGED` | factor-engine momentum + delta | Δ ≥ +8pt of level ≥70 |
-| 3 | `EARNINGS_SOON` | dagen tot kwartaalcijfers (feed) | <14 dagen = aandacht |
-| 4 | `DIVIDEND_CHANGED` | yield-delta vs vorige meting | ±0.5pp = signaal |
-| 5 | `MACRO_FIT` | macro-regime × asset-class (Module 5) | tailwind = positief |
-| 6 | `SENTIMENT_SHIFT` | sentiment-score + delta (feed) | level >0.2 of Δ ≥0.3 |
-| 7 | `SIMILAR_ALTERNATIVE` | sector-peers met +8pt composite | gevonden = negatief |
+| # | Module 9-spec | Key | Wat het meet | Drempel |
+|---|---|---|---|---|
+| 1 | Waardering aantrekkelijker | `VALUATION_IMPROVED` | factor-engine value-score + delta | level ≥70 of Δ ≥ +5pt |
+| 2 | Momentum verbetert/verslechtert | `MOMENTUM_CHANGED` | factor-engine momentum + delta | Δ ≥ +8pt of level ≥70 |
+| 3 | Volatiliteit stijgt | `VOLATILITY_RISING` | annualized vol + delta | Δ ≥ +3pp = negatief |
+| 4 | Dividendwijziging | `DIVIDEND_CHANGED` | yield-delta vs vorige meting | ±0.5pp = signaal |
+| 5 | Earnings event | `EARNINGS_SOON` | dagen tot kwartaalcijfers (feed) | <14 dagen = aandacht |
+| 6 | Macrogevoeligheid | `MACRO_FIT` | macro-regime × asset-class (Module 6) | tailwind = positief |
+| 7 | Vergelijkbare alternatieven | `SIMILAR_ALTERNATIVE` | sector-peers met +8pt composite | gevonden = negatief |
+| 8 | Lage datakwaliteit | `DATA_QUALITY` ⚙ | coverage-check van 4 kerngegevens | 2+ ontbrekend = negatief |
+| 9 | Kansrijk maar risicovol | `OPPORTUNITY_VS_RISK` | composite/momentum × vol/beta | beide aanwezig = flag |
+| 10 | Past wel/niet bij profiel | `PROFILE_FIT` | assetClass × riskTolerance × horizon | heuristische match |
+| + | (bonus) sentiment | `SENTIMENT_SHIFT` | sentiment-score + delta (feed) | level >0.2 of Δ ≥0.3 |
 
-Elk signaal heeft `direction` (positive/negative/neutral), `strength` (0-100), en een rationale-string in NL.
+⚙ = meta-signaal: `DATA_QUALITY` beïnvloedt de tier-derivation **niet** (voorkomt dat goede coverage een ticker fake-interessant maakt). Het wordt wel in de UI getoond als kwaliteits-pill.
+
+Elk signaal heeft `direction` (positive/negative/neutral), `strength` (0-100), en een NL-rationale.
 
 ---
 
@@ -26,16 +32,20 @@ Elk signaal heeft `direction` (positive/negative/neutral), `strength` (0-100), e
 
 ```
 src/lib/watchlist-intelligence/
-├── types.ts              # WatchlistSignal, WatchlistIntelligenceReport
-├── input.ts              # Hydratie-input shape (factor-pair + macro + universe)
-├── signals.ts            # 7 pure extractors + findSimilarAlternatives
+├── types.ts              # WatchlistSignal, WatchlistIntelligenceReport (11 keys)
+├── input.ts              # Input shape + WatchlistUserProfile (PROFILE_FIT)
+├── signals.ts            # 11 pure extractors + findSimilarAlternatives
 ├── engine.ts             # Orchestrator + tier + headline + whyInteresting
 ├── engine.test.ts        # 31 tests
+├── spec-conformance.test.ts # 13 tests — Module 9 spec-eisen
 └── index.ts
 
+src/lib/alerts/
+└── generators.ts         # generateWatchlistIntelligenceAlerts (Module 9)
+
 src/app/(app)/watchlist/
-├── load-watchlist.ts     # Server-side: hydrateert items + macro + universe + intelligence
-└── page.tsx              # Renders IntelligenceCard-grid + legacy-table
+├── load-watchlist.ts     # Server-side hydratatie
+└── page.tsx              # IntelligenceCard-grid
 
 src/components/watchlist/
 └── intelligence-card.tsx # Per ticker: signal-pills + alternatives + whyInteresting
@@ -106,11 +116,15 @@ Faal-safe: elk fetch met `.catch(() => null/[])`. Ontbrekende data → signaal m
 
 ## 6. Alerts-integratie
 
-De dashboard alert-trigger (Module 10) krijgt nu watchlist-data:
-- **`WATCHLIST_OPPORTUNITY`** vuurt af wanneer een quote in de target-zone valt (`price ≤ targetPrice` of `price ≥ targetPriceHigh`)
-- **`VALUATION_SIGNAL`** vuurt af wanneer het VALUATION_IMPROVED-signaal level ≥70 toont (idempotent op `(ticker, dag)`)
+De dashboard alert-trigger (Module 10) krijgt watchlist-data uit twee onafhankelijke generators:
 
-Beide gebruiken bestaande `dedupeKey`-conventie zodat dezelfde gebeurtenis niet 6x per dag een notificatie wordt.
+| Generator | Type | Trigger | Bron |
+|---|---|---|---|
+| `generateWatchlistAlerts` | `WATCHLIST_OPPORTUNITY` | quote in target-zone (`≤ targetPrice` of `≥ targetPriceHigh`) | price-hits |
+| `generateWatchlistIntelligenceAlerts` | `WATCHLIST_OPPORTUNITY` | tier=STRONG_OPPORTUNITY OF mixed (sterk+ en sterk−) | intelligence-rapport |
+| `generateValuationSignalAlerts` | `VALUATION_SIGNAL` | level ≥70 / FCF-yield ≥7% | factor-engine + fundamentals |
+
+Alle drie gebruiken de bestaande `dedupeKey`-conventie (`<TYPE>:<userId>:<dag>:<ticker>:<variant>`) zodat dezelfde gebeurtenis niet 6× per dag een notificatie wordt. De Module 9-generator (`generateWatchlistIntelligenceAlerts`) onderscheidt expliciet `STRONG`-tier-alerts van `MIXED`-aandacht-alerts ("kans + risico samen").
 
 ---
 

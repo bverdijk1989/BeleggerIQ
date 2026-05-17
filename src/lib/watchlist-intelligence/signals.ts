@@ -410,17 +410,263 @@ export function extractAlternativesSignal(
 }
 
 // ============================================================
+//  8. Volatility rising — Module 9
+// ============================================================
+
+const VOL_DELTA_TRIGGER = 0.03; // 3pp jaarvol-toename = signaal
+const VOL_HIGH_ABS = 0.35;
+const VOL_LOW_ABS = 0.15;
+
+export function extractVolatilitySignal(
+  input: WatchlistIntelligenceInput,
+): WatchlistSignal {
+  const cur = input.current.volatility;
+  const prev = input.current.previousVolatility;
+  if (typeof cur !== "number" || !Number.isFinite(cur)) {
+    return notAvailable(
+      "VOLATILITY_RISING",
+      "Geen volatiliteits-meting beschikbaar voor deze ticker.",
+    );
+  }
+  const delta =
+    typeof prev === "number" && Number.isFinite(prev) ? cur - prev : null;
+  let direction: WatchlistSignal["direction"] = "neutral";
+  // Stijgende volatiliteit = negatief signaal (meer risico / mogelijke stress);
+  // dalende volatiliteit + lage abs = positief (rust).
+  if (delta !== null && delta >= VOL_DELTA_TRIGGER) direction = "negative";
+  else if (delta !== null && delta <= -VOL_DELTA_TRIGGER) direction = "positive";
+  else if (cur >= VOL_HIGH_ABS) direction = "negative";
+  else if (cur <= VOL_LOW_ABS) direction = "positive";
+
+  const trend =
+    delta === null
+      ? cur >= VOL_HIGH_ABS
+        ? "verhoogd"
+        : cur <= VOL_LOW_ABS
+          ? "rustig"
+          : "neutraal"
+      : delta >= VOL_DELTA_TRIGGER
+        ? "stijgend"
+        : delta <= -VOL_DELTA_TRIGGER
+          ? "dalend"
+          : "stabiel";
+
+  const parts: string[] = [`volatiliteit ${pct(cur, 1)}`];
+  if (delta !== null) parts.push(`Δ ${signedPct(delta, 1)}-punten`);
+
+  return {
+    key: "VOLATILITY_RISING",
+    label: WATCHLIST_SIGNAL_LABELS.VOLATILITY_RISING,
+    available: true,
+    direction,
+    rationale: `Volatiliteit ${trend} (${parts.join(", ")}).`,
+    metric: cur,
+    strength: clamp(
+      Math.abs(cur - 0.20) * 250 +
+        (delta !== null ? Math.min(50, Math.abs(delta) * 500) : 0),
+    ),
+  };
+}
+
+// ============================================================
+//  9. Data quality — Module 9 (meta-signaal)
+// ============================================================
+
+/**
+ * Eenvoudige coverage-check: hoeveel kerngegevens leverde de input?
+ * factorScore, fundamentals, en (optioneel) previousFactorScore — als
+ * minstens 2 hiervan ontbreken, signaleer lage data-kwaliteit.
+ */
+export function extractDataQualitySignal(
+  input: WatchlistIntelligenceInput,
+): WatchlistSignal {
+  const flags: string[] = [];
+  if (!input.current.factorScore) flags.push("factor-score");
+  if (!input.current.fundamentals) flags.push("fundamentals");
+  if (!input.current.previousFactorScore) flags.push("history");
+  if (!input.current.sector) flags.push("sector-classificatie");
+
+  // Coverage als fractie (4 kerngegevens; lager = slechter).
+  const coverage = clamp(((4 - flags.length) / 4) * 100);
+  let direction: WatchlistSignal["direction"] = "neutral";
+  if (flags.length === 0) direction = "positive";
+  else if (flags.length >= 2) direction = "negative";
+
+  const rationale =
+    flags.length === 0
+      ? "Alle kern-databronnen beschikbaar (factor-score, fundamentals, historiek, sector)."
+      : flags.length === 1
+        ? `Eén databron ontbreekt: ${flags[0]} — signalen blijven bruikbaar maar met onzekerheidsmarge.`
+        : `Meerdere databronnen ontbreken (${flags.join(", ")}) — signalen leunen op partial data; interpreteer voorzichtig.`;
+
+  return {
+    key: "DATA_QUALITY",
+    label: WATCHLIST_SIGNAL_LABELS.DATA_QUALITY,
+    available: true,
+    direction,
+    rationale,
+    metric: coverage / 100,
+    // Datakwaliteit-strength is altijd "aandacht-relevant" — vooral hoog
+    // als coverage laag is (waarschuwing) of perfect (geruststelling).
+    strength: clamp(Math.abs(coverage - 50) + 40),
+  };
+}
+
+// ============================================================
+//  10. Opportunity vs risk — Module 9
+// ============================================================
+
+/**
+ * Detecteert "kansrijk maar risicovol": hoge composite-score of sterk
+ * momentum + boven-gemiddelde volatiliteit / hoge beta. Bedoeld als
+ * gele-vlag voor de gebruiker, niet als afkeurend signaal.
+ */
+export function extractOpportunityVsRiskSignal(
+  input: WatchlistIntelligenceInput,
+): WatchlistSignal {
+  const composite = input.current.factorScore?.composite ?? null;
+  const momentum = input.current.factorScore?.subScores.momentum ?? null;
+  const vol = input.current.volatility ?? null;
+  const beta = input.current.beta ?? null;
+
+  // Opportunity-side: high composite OR high momentum.
+  const hasOpportunity =
+    (typeof composite === "number" && composite >= 65) ||
+    (typeof momentum === "number" && momentum >= 70);
+
+  // Risk-side: hoge volatiliteit (>25%/yr) OF hoge beta (>1.3).
+  const hasRisk =
+    (typeof vol === "number" && vol >= 0.25) ||
+    (typeof beta === "number" && beta >= 1.3);
+
+  // Beide nodig om "kansrijk-maar-risicovol" te triggeren.
+  if (!hasOpportunity && !hasRisk) {
+    return notAvailable(
+      "OPPORTUNITY_VS_RISK",
+      "Onvoldoende kans-of-risico-indicatie — neutraal profiel.",
+    );
+  }
+  if (!hasOpportunity || !hasRisk) {
+    return {
+      key: "OPPORTUNITY_VS_RISK",
+      label: WATCHLIST_SIGNAL_LABELS.OPPORTUNITY_VS_RISK,
+      available: true,
+      direction: "neutral",
+      rationale: hasOpportunity
+        ? "Kansrijk profiel zonder uitgesproken risico-signalen."
+        : "Verhoogd risico zonder uitgesproken kans-profiel — afblijven kan ook een keuze zijn.",
+      metric: typeof composite === "number" ? composite : null,
+      strength: 35,
+    };
+  }
+  // Beide aanwezig — gele vlag.
+  const detailParts: string[] = [];
+  if (typeof composite === "number") detailParts.push(`composite ${Math.round(composite)}/100`);
+  if (typeof momentum === "number") detailParts.push(`momentum ${Math.round(momentum)}/100`);
+  if (typeof vol === "number") detailParts.push(`vol ${pct(vol)}`);
+  if (typeof beta === "number") detailParts.push(`β ${beta.toFixed(2)}`);
+
+  return {
+    key: "OPPORTUNITY_VS_RISK",
+    label: WATCHLIST_SIGNAL_LABELS.OPPORTUNITY_VS_RISK,
+    available: true,
+    direction: "neutral",
+    rationale: `Kansrijk profiel maar verhoogd risico (${detailParts.join(", ")}). Een kleinere positiegrootte of bewuste horizon kan helpen.`,
+    metric: typeof composite === "number" ? composite : null,
+    strength: 75,
+  };
+}
+
+// ============================================================
+//  11. Profile fit — Module 9
+// ============================================================
+
+/**
+ * Past de asset bij het user-profiel (risk-tolerance + horizon)?
+ * Heuristische match — geen advies. Volwassen versie zou tegen het
+ * volledige allocation-model checken; voor v1 hanteren we duidelijke
+ * regels op assetClassKey × riskTolerance × horizon.
+ */
+export function extractProfileFitSignal(
+  input: WatchlistIntelligenceInput,
+): WatchlistSignal {
+  const profile = input.userProfile;
+  const assetKey = input.current.assetClassKey;
+  if (!profile) {
+    return notAvailable(
+      "PROFILE_FIT",
+      "Geen user-profiel beschikbaar — fit kan niet bepaald worden.",
+    );
+  }
+  if (!assetKey) {
+    return notAvailable(
+      "PROFILE_FIT",
+      "Geen asset-classificatie — fit kan niet bepaald worden.",
+    );
+  }
+
+  // Heuristiek: defensieve profielen + groei-aandelen of crypto = matig fit.
+  // Agressieve profielen + cash/bonds = matig fit (te conservatief).
+  const isDefensiveProfile =
+    profile.riskTolerance === "CONSERVATIVE" || profile.investmentHorizonYrs < 5;
+  const isAggressiveProfile =
+    profile.riskTolerance === "AGGRESSIVE" && profile.investmentHorizonYrs >= 10;
+  const isHighVolAsset =
+    assetKey === "EQUITY_GROWTH" || assetKey === "EQUITY_CYCLICAL" || assetKey === "COMMODITIES";
+  const isLowVolAsset =
+    assetKey === "BOND_GOVERNMENT" || assetKey === "CASH" || assetKey === "BOND_CORPORATE";
+
+  let direction: WatchlistSignal["direction"];
+  let rationale: string;
+  let strength: number;
+  if (isDefensiveProfile && isHighVolAsset) {
+    direction = "negative";
+    rationale = `${profile.riskTolerance}-profiel + horizon ${profile.investmentHorizonYrs}jr past minder bij volatiele asset — overweeg een kleinere positiegrootte.`;
+    strength = 70;
+  } else if (isAggressiveProfile && isLowVolAsset) {
+    direction = "negative";
+    rationale = `${profile.riskTolerance}-profiel + horizon ${profile.investmentHorizonYrs}jr is gericht op groei — defensieve asset past niet optimaal bij dit doel.`;
+    strength = 55;
+  } else if (
+    (profile.riskTolerance === "BALANCED" || profile.riskTolerance === "GROWTH") &&
+    !isLowVolAsset
+  ) {
+    direction = "positive";
+    rationale = `${profile.riskTolerance}-profiel + horizon ${profile.investmentHorizonYrs}jr sluit goed aan bij deze asset-class.`;
+    strength = 55;
+  } else {
+    direction = "neutral";
+    rationale = `Geen uitgesproken mismatch tussen ${profile.riskTolerance}-profiel en deze asset-class.`;
+    strength = 40;
+  }
+
+  return {
+    key: "PROFILE_FIT",
+    label: WATCHLIST_SIGNAL_LABELS.PROFILE_FIT,
+    available: true,
+    direction,
+    rationale,
+    metric: null,
+    strength,
+  };
+}
+
+// ============================================================
 //  Public registry
 // ============================================================
 
 export const ALL_EXTRACTORS = [
   extractValuationSignal,
   extractMomentumSignal,
+  extractVolatilitySignal,
   extractEarningsSignal,
   extractDividendSignal,
   extractMacroFitSignal,
   extractSentimentSignal,
   extractAlternativesSignal,
+  extractDataQualitySignal,
+  extractOpportunityVsRiskSignal,
+  extractProfileFitSignal,
 ] as const;
 
 /** Helper voor universe-bouw. */

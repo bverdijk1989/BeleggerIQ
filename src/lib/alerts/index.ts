@@ -18,6 +18,7 @@ export {
   generatePriceMoveAlerts,
   generateValuationSignalAlerts,
   generateWatchlistAlerts,
+  generateWatchlistIntelligenceAlerts,
   type AiBriefingReadyInput,
   type BehavioralWarningInput,
   type ConcentrationRisingInput,
@@ -27,6 +28,8 @@ export {
   type MacroRegimeChangeInput,
   type PriceMoveInput,
   type ValuationSignalInput,
+  type WatchlistIntelligenceAlertInput,
+  type WatchlistIntelligenceHit,
   type WatchlistOpportunityInput,
 } from "./generators";
 export {

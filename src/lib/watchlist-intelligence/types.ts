@@ -22,11 +22,15 @@ import type { ISODateString } from "@/types/common";
 export type WatchlistSignalKey =
   | "VALUATION_IMPROVED"
   | "MOMENTUM_CHANGED"
+  | "VOLATILITY_RISING"
   | "EARNINGS_SOON"
   | "DIVIDEND_CHANGED"
   | "MACRO_FIT"
   | "SENTIMENT_SHIFT"
-  | "SIMILAR_ALTERNATIVE";
+  | "SIMILAR_ALTERNATIVE"
+  | "DATA_QUALITY"
+  | "OPPORTUNITY_VS_RISK"
+  | "PROFILE_FIT";
 
 export type SignalDirection = "positive" | "negative" | "neutral";
 
@@ -94,19 +98,27 @@ export interface WatchlistIntelligenceReport {
 export const WATCHLIST_SIGNAL_LABELS: Record<WatchlistSignalKey, string> = {
   VALUATION_IMPROVED: "Waardering",
   MOMENTUM_CHANGED: "Momentum",
+  VOLATILITY_RISING: "Volatiliteit",
   EARNINGS_SOON: "Earnings",
   DIVIDEND_CHANGED: "Dividend",
   MACRO_FIT: "Macro-fit",
   SENTIMENT_SHIFT: "Sentiment",
   SIMILAR_ALTERNATIVE: "Alternatieven",
+  DATA_QUALITY: "Datakwaliteit",
+  OPPORTUNITY_VS_RISK: "Kans-risico",
+  PROFILE_FIT: "Profiel-fit",
 };
 
 export const WATCHLIST_SIGNAL_ORDER: ReadonlyArray<WatchlistSignalKey> = [
   "VALUATION_IMPROVED",
   "MOMENTUM_CHANGED",
+  "VOLATILITY_RISING",
   "DIVIDEND_CHANGED",
   "EARNINGS_SOON",
   "MACRO_FIT",
   "SENTIMENT_SHIFT",
   "SIMILAR_ALTERNATIVE",
+  "OPPORTUNITY_VS_RISK",
+  "PROFILE_FIT",
+  "DATA_QUALITY",
 ];
