@@ -239,6 +239,26 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Dividend Calendar + DRIP Simulator (M22)
+  // ============================================================
+  {
+    key: "dividend.calendar",
+    label: "Dividend-kalender",
+    description:
+      "Wanneer ontvang je dividend? Per maand verwacht bedrag + ex-dividend/pay-date indien beschikbaar. Heuristische schatting bij ontbrekende feed.",
+    availableIn: ALL_TIERS,
+    category: "analytics",
+  },
+  {
+    key: "dividend.drip",
+    label: "DRIP-simulator (5/10/20 jaar)",
+    description:
+      "Vergelijk herbeleggen aan/uit over 5, 10 en 20 jaar met conservatief/neutraal/optimistisch rendement. Inclusief jaarlijkse projectie en groei-analyse.",
+    availableIn: ALL_PAID,
+    category: "analytics",
+  },
+
+  // ============================================================
   //  Community Intelligence (M13)
   // ============================================================
   {

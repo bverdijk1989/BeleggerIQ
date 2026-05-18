@@ -51,6 +51,9 @@ export type FeatureKey =
   | "alerts.premium"
   // Crypto Risk Lab (M12)
   | "crypto.lab"
+  // Dividend Calendar (M22) + DRIP Simulator
+  | "dividend.calendar"
+  | "dividend.drip"
   // Community Intelligence (M13)
   | "community.benchmark"
   // Advisor / Enterprise (toekomst)
