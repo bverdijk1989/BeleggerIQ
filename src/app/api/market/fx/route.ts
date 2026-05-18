@@ -3,12 +3,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getFxRate } from "@/lib/data/fx";
 import { jsonError, jsonServerError } from "@/lib/http";
 
-import { MARKET_CACHE_HEADERS, parseCurrency } from "../_shared";
+import {
+  MARKET_CACHE_HEADERS,
+  parseCurrency,
+  requireMarketAuth,
+} from "../_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const unauth = await requireMarketAuth();
+  if (unauth) return unauth;
   try {
     const params = request.nextUrl.searchParams;
     const from = parseCurrency(params.get("from"));

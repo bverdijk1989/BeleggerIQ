@@ -6,7 +6,8 @@
  * data fouten → metrics op missing/low; engine produceert wel een rapport.
  */
 
-import { getHistory } from "@/lib/data";
+import { getFxRate, getHistory } from "@/lib/data";
+import type { Currency } from "@/types/common";
 import type { Portfolio } from "@/types/portfolio";
 
 import { buildCryptoRiskReport, classifyCryptoTicker } from "./engine";
@@ -39,7 +40,10 @@ export async function loadCryptoRiskReport(
   const asOfIso = asOf.toISOString();
 
   // 1. Filter user-positions tot CRYPTO + classificeer BTC/ETH.
-  const positions = buildPositions(input);
+  //    Marktwaarde wordt geconverteerd naar portfolio.baseCurrency
+  //    (Module 12 risico — Yahoo BTC-USD/ETH-USD geeft USD-noteringen).
+  const baseCurrency = input.portfolio.baseCurrency;
+  const positions = await buildPositions(input, baseCurrency);
 
   // 2. Voor elke unieke BTC/ETH asset → fetch 1y daily history.
   const uniqueAssets = unique(
@@ -73,15 +77,47 @@ export async function loadCryptoRiskReport(
 //  Helpers
 // ============================================================
 
-function buildPositions(
+async function buildPositions(
   input: LoadCryptoRiskReportInput,
-): CryptoPosition[] {
+  baseCurrency: Currency,
+): Promise<CryptoPosition[]> {
   const out: CryptoPosition[] = [];
   const total = input.totalPortfolioValue;
+
+  // FX-rates per holding-currency, één keer per unieke currency (cache).
+  const fxByCurrency = new Map<string, number>();
+  fxByCurrency.set(baseCurrency, 1);
+
   for (const h of input.portfolio.holdings) {
     if (h.assetClass !== "CRYPTO") continue;
     const price = h.currentPrice ?? h.avgCostPrice;
-    const marketValueBase = Number.isFinite(price) ? price * h.quantity : 0;
+    if (!Number.isFinite(price)) {
+      out.push({
+        ticker: h.ticker,
+        name: h.name,
+        marketValueBase: 0,
+        weight: 0,
+        asset: classifyCryptoTicker(h.ticker, h.name),
+      });
+      continue;
+    }
+
+    const holdingCurrency = (h.currency as Currency) ?? baseCurrency;
+    let fxRate = fxByCurrency.get(holdingCurrency);
+    if (fxRate === undefined) {
+      // Faal-safe: bij FX-fetch-failure val terug op rate=1 (= geen
+      // conversie). Niet ideaal maar voorkomt dat de hele lab-pagina
+      // crasht; UI toont dan "marktwaarde in mixed currency".
+      try {
+        const fx = await getFxRate(holdingCurrency, baseCurrency);
+        fxRate = fx?.rate ?? 1;
+      } catch {
+        fxRate = 1;
+      }
+      fxByCurrency.set(holdingCurrency, fxRate);
+    }
+
+    const marketValueBase = price * h.quantity * fxRate;
     out.push({
       ticker: h.ticker,
       name: h.name,

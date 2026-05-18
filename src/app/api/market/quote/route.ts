@@ -7,12 +7,15 @@ import {
   MARKET_CACHE_HEADERS,
   parseTicker,
   parseTickers,
+  requireMarketAuth,
 } from "../_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const unauth = await requireMarketAuth();
+  if (unauth) return unauth;
   try {
     const params = request.nextUrl.searchParams;
     const parsedTickers = parseTickers(params.get("tickers"));

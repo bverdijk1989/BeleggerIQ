@@ -4,7 +4,11 @@ import { getHistory } from "@/lib/data/history";
 import { jsonError, jsonServerError, parseEnum, parseIsoDate } from "@/lib/http";
 import type { HistoryInterval } from "@/types/market";
 
-import { MARKET_CACHE_HEADERS, parseTicker } from "../_shared";
+import {
+  MARKET_CACHE_HEADERS,
+  parseTicker,
+  requireMarketAuth,
+} from "../_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +16,8 @@ export const dynamic = "force-dynamic";
 const VALID_INTERVALS = ["1d", "1wk", "1mo"] as const satisfies readonly HistoryInterval[];
 
 export async function GET(request: NextRequest) {
+  const unauth = await requireMarketAuth();
+  if (unauth) return unauth;
   try {
     const params = request.nextUrl.searchParams;
     const ticker = parseTicker(params.get("ticker"));

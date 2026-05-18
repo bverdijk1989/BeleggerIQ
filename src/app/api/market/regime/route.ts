@@ -4,7 +4,7 @@ import { computeRegimeScore } from "@/lib/analytics/regime/engine";
 import { fetchRegimeInputs } from "@/lib/data/regime";
 import { jsonServerError } from "@/lib/http";
 
-import { MARKET_CACHE_HEADERS } from "../_shared";
+import { MARKET_CACHE_HEADERS, requireMarketAuth } from "../_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
  * desgewenst zelf kunnen ranken of hergewichten.
  */
 export async function GET(_request: NextRequest) {
+  const unauth = await requireMarketAuth();
+  if (unauth) return unauth;
   try {
     const fetched = await fetchRegimeInputs();
     if (!fetched) {

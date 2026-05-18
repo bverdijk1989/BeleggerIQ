@@ -3,12 +3,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getFundamentals } from "@/lib/data/fundamentals";
 import { jsonError, jsonServerError } from "@/lib/http";
 
-import { MARKET_CACHE_HEADERS, parseTicker } from "../_shared";
+import {
+  MARKET_CACHE_HEADERS,
+  parseTicker,
+  requireMarketAuth,
+} from "../_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const unauth = await requireMarketAuth();
+  if (unauth) return unauth;
   try {
     const ticker = parseTicker(request.nextUrl.searchParams.get("ticker"));
     if (!ticker) {

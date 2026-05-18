@@ -1,11 +1,31 @@
-import type { Currency } from "@/types/common";
+import { NextResponse } from "next/server";
+
+import { resolveUserFromServer } from "@/lib/auth";
 import { parseTickerStrict } from "@/lib/http/validate";
+import type { Currency } from "@/types/common";
 
 /**
  * Gedeelde helpers voor de /api/market routes. Houdt validatie en
  * response-shaping consistent. Alle input-validatie leunt op
  * `@/lib/http/validate` zodat de regels centraal liggen.
  */
+
+/**
+ * Auth-guard voor /api/market/*. Module 16 §4.3: deze routes raken de
+ * upstream provider-quota (Yahoo, Alpha Vantage). Een eenvoudige
+ * resolveUser-check voorkomt dat derden onze quota kunnen leegtrekken.
+ *
+ * Returnt `null` bij geauthenticeerde user (mag doorgaan), anders een
+ * 401-response die de route direct kan terugsturen.
+ */
+export async function requireMarketAuth(): Promise<NextResponse | null> {
+  const auth = await resolveUserFromServer();
+  if (auth.ok) return null;
+  return NextResponse.json(
+    { error: "Authenticatie vereist.", code: "UNAUTHENTICATED" },
+    { status: 401 },
+  );
+}
 
 const SUPPORTED_CURRENCIES: ReadonlySet<string> = new Set([
   "EUR",
