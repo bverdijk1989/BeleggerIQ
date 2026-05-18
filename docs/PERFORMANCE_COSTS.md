@@ -1,8 +1,25 @@
-# Performance, Observability & Cost Control — Module 16
+# Performance, Observability & Cost Control — Module 17
 
 Audit-driven optimalisatie-pas over query-snelheid, caching, AI-kosten, observability en database-indexes. Niet-intrusief; alle additieve helpers, twee bestaande call-sites gewijzigd, één migratie toegevoegd.
 
 > **Aanpak**: 3 parallelle audit-agents over caching/AI-kosten, DB-queries/indexes en observability/timing. Bevindingen geconverteerd naar 3 nieuwe perf-helpers, een Prisma-slow-query-middleware, één index-migratie en een transaction-list-pagination-fix.
+
+---
+
+## 0. Module 17-spec mapping — 10 analyse-punten
+
+| # | Spec | Status | Locatie |
+|---|---|---|---|
+| 1 | Trage queries | ✅ | Prisma `$use`-middleware in `src/lib/data/prisma.ts` (drempel `PRISMA_SLOW_QUERY_THRESHOLD_MS`, default 500ms) |
+| 2 | Bundle size | ⚠️ | Tree-shaking via barrel-pattern; geen bundle-analyzer wired; zie §5 |
+| 3 | Onnodige renders | ⚠️ | App-Router server-components dominant; client-components klein. Geen formal audit nog |
+| 4 | AI-call frequentie | ✅ | `recordAICost` → metric:ai_cost-events; per-scope aggregator in `cost-meter.ts` |
+| 5 | Caching | ✅ | TtlCache (market-data 60s), briefing-cache (12u), explainability-cache (12u, 6+ domeinen) |
+| 6 | Database indexes | ✅ | Migratie `20260510220000_add_perf_indexes` + bestaande `(userId, *)` compounds |
+| 7 | API latency | ✅ | `recordTiming` helper + request-id propagatie via `proxy.ts` |
+| 8 | Importperformance | ✅ | `transactionRepository.list` paginated (default 1000, max 5000) |
+| 9 | Error monitoring | ⚠️ | Sentry-skeleton aanwezig (`src/lib/observability/sentry.ts`); DSN-aansluiting nog niet actief |
+| 10 | Kosten per premium feature | ✅ | `recordAICost({ scope: "explain:<domain>" })` — per-domein attributie zichtbaar in admin dashboard (Module 15) |
 
 ---
 
