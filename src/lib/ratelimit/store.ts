@@ -7,25 +7,37 @@ import {
 } from "./token-bucket";
 
 /**
- * In-memory token-bucket store.
+ * Token-bucket store-abstractie (Module 19).
  *
- * Bewust géén externe dependency. Voor één Node-instance (huidige
- * Hetzner-deploy) heeft één Map voldoende capaciteit; bij scale-out
- * naar meerdere replicas migreren we naar Redis (zie TODO onderin).
+ * **Interface**: `RateLimitStore` definieert wat een rate-limit-backend
+ * moet kunnen. De in-memory implementatie is de default; een toekomstige
+ * Redis-store implementeert dezelfde interface en kan via
+ * `setRateLimitStore(store)` worden aangesloten.
  *
- * Geheugengebruik: ~100 bytes per actieve bucket. 10k unieke IPs = ~1MB
- * — verwaarloosbaar. De `prune` haak houdt 'em opgeruimd zodat een
- * lange-running proces niet langzaam balloont.
+ * **Pure functions** (`createBucket`, `tryConsume`) zijn backend-agnostisch
+ * — een Redis-store wraps ze met Lua-script of WATCH/MULTI voor
+ * atomicity tussen replicas.
  *
- * ⚠ Multi-instance migratie (TODO):
- *   - Vervang `Map` door een Redis-client (bv. `ioredis`).
- *   - Bewaar `BucketState` als Redis-hash met `HSET <key> tokens ts`.
- *   - Gebruik Lua-script voor atomic refill+consume zodat 2 replicas
- *     niet beide "allowed" teruggeven binnen dezelfde tick.
- *   - Pas `RATELIMIT_BACKEND=redis` env-flag toe voor staged rollout.
- *   - Rate-limit-keys hoeven niet sticky te zijn naar 1 replica — de
- *     pure functions in `token-bucket.ts` zijn al backend-agnostisch.
+ * **Migratie-pad naar multi-instance**:
+ *   - Implementeer `RateLimitStore` met `ioredis`-client
+ *   - Bewaar `BucketState` als Redis-hash: `HSET <key> tokens ts`
+ *   - Gebruik Lua-script voor atomic refill+consume
+ *   - Activeer via `RATELIMIT_BACKEND=redis` env-flag in een staged rollout
  */
+
+/** Pluggable store-interface — Redis kan dezelfde shape implementeren. */
+export interface RateLimitStore {
+  /** Backend-naam voor logs/debug (`memory` / `redis` / ...). */
+  readonly backend: string;
+  /** Probeer 1 token te consumeren voor de gegeven key. */
+  consume(key: string, config: BucketConfig, nowMs: number): ConsumeResult;
+  /** Cleanup van oude buckets (opportunistic, in-memory only). */
+  prune(nowMs: number): number;
+}
+
+// ============================================================
+//  In-memory implementation — default backend
+// ============================================================
 
 const buckets = new Map<string, BucketState>();
 const lastSeen = new Map<string, number>();
@@ -87,9 +99,37 @@ export function resetRateLimitStoreForTest(): void {
   buckets.clear();
   lastSeen.clear();
   lastPruneMs = 0;
+  activeStore = inMemoryStore;
 }
 
 /** Test-only inspect — gebruik niet in productie-code. */
 export function _peekStoreSize(): number {
   return buckets.size;
+}
+
+// ============================================================
+//  Store-registry — backend zwap zonder call-site-aanpassing
+// ============================================================
+
+/**
+ * In-memory implementatie van `RateLimitStore`. Default-backend in
+ * Module 19. Bij multi-instance scaling: implementeer `RateLimitStore`
+ * met Redis-client en gebruik `setRateLimitStore(redisStore)` op startup.
+ */
+export const inMemoryStore: RateLimitStore = {
+  backend: "memory",
+  consume,
+  prune,
+};
+
+let activeStore: RateLimitStore = inMemoryStore;
+
+/** Backend-zwap — bv. `setRateLimitStore(redisStore)` op startup. */
+export function setRateLimitStore(store: RateLimitStore): void {
+  activeStore = store;
+}
+
+/** Lees-only view van de actieve store. */
+export function getActiveRateLimitStore(): RateLimitStore {
+  return activeStore;
 }

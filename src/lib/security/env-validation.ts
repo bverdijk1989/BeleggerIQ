@@ -112,6 +112,48 @@ export function validateEnv(opts: EnvValidationOptions = {}): EnvValidationResul
     );
   }
 
+  // 7. Stripe (Module 19): wanneer STRIPE_SECRET_KEY actief is, moeten
+  //    de price-IDs voor de paid tiers ook gezet zijn. We loggen
+  //    UITSLUITEND de naam van de ontbrekende env-var, NOOIT de waarde.
+  if (env.STRIPE_SECRET_KEY) {
+    const STRIPE_PRICE_KEYS = [
+      "STRIPE_PRICE_PRO_MONTHLY",
+      "STRIPE_PRICE_PRO_YEARLY",
+      "STRIPE_PRICE_ELITE_MONTHLY",
+      "STRIPE_PRICE_ELITE_YEARLY",
+    ] as const;
+    const missing = STRIPE_PRICE_KEYS.filter((k) => !env[k]);
+    if (missing.length > 0) {
+      const lvl = isProd ? errors : warnings;
+      lvl.push(
+        `Stripe enabled but price-IDs missing: ${missing.join(", ")}`,
+      );
+    }
+    // Webhook-secret is vereist om Stripe-events veilig te valideren.
+    if (!env.STRIPE_WEBHOOK_SECRET) {
+      const lvl = isProd ? errors : warnings;
+      lvl.push("Stripe enabled but STRIPE_WEBHOOK_SECRET missing");
+    }
+  }
+
+  // 8. AI-provider readiness (Module 19): wanneer AI_PROVIDER expliciet
+  //    op anthropic/openai staat, moet er ook een key zijn.
+  const aiProvider = env.AI_PROVIDER;
+  if (aiProvider === "anthropic" && !env.ANTHROPIC_API_KEY) {
+    const lvl = isProd ? errors : warnings;
+    lvl.push("AI_PROVIDER=anthropic maar ANTHROPIC_API_KEY ontbreekt");
+  }
+  if (aiProvider === "openai" && !env.OPENAI_API_KEY) {
+    const lvl = isProd ? errors : warnings;
+    lvl.push("AI_PROVIDER=openai maar OPENAI_API_KEY ontbreekt");
+  }
+  // Productie zonder enige AI-provider → warning (fallback werkt nog).
+  if (isProd && !aiProvider) {
+    warnings.push(
+      "AI_PROVIDER niet gezet — explainability draait in deterministische fallback-mode",
+    );
+  }
+
   return {
     ok: errors.length === 0,
     errors,

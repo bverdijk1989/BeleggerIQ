@@ -1,5 +1,5 @@
 import { resolvePolicy, type RateLimitPolicy } from "./policy";
-import { consume, maybePrune } from "./store";
+import { getActiveRateLimitStore, maybePrune } from "./store";
 import type { ConsumeResult } from "./token-bucket";
 
 /**
@@ -57,7 +57,11 @@ export function checkRateLimit(
   maybePrune(nowMs);
 
   const key = `${policy.name}|${input.identifier}`;
-  const result: ConsumeResult = consume(key, policy.config, nowMs);
+  const result: ConsumeResult = getActiveRateLimitStore().consume(
+    key,
+    policy.config,
+    nowMs,
+  );
 
   if (result.allowed) {
     return { kind: "allowed", policy: policy.name, remaining: result.remaining };
@@ -71,4 +75,10 @@ export function checkRateLimit(
 }
 
 export { resolvePolicy } from "./policy";
-export { resetRateLimitStoreForTest } from "./store";
+export {
+  getActiveRateLimitStore,
+  inMemoryStore,
+  resetRateLimitStoreForTest,
+  setRateLimitStore,
+  type RateLimitStore,
+} from "./store";
