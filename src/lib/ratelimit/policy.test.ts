@@ -41,7 +41,9 @@ describe("resolvePolicy", () => {
   });
 
   it("default-api capacity = 20, refill = 10/min", () => {
-    const p = resolvePolicy("/api/market/quote", "GET");
+    // Module 16: /api/market/* heeft een strikt-market-policy gekregen
+    // (capacity 10) — gebruik een andere /api/-pad voor de default-check.
+    const p = resolvePolicy("/api/health", "GET");
     expect(p?.config.capacity).toBe(20);
     expect(p?.config.refillPerSec).toBeCloseTo(10 / 60, 5);
   });

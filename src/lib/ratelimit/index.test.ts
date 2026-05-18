@@ -20,7 +20,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
     const ip = "1.2.3.4";
     for (let i = 0; i < 20; i++) {
       const r = checkRateLimit({
-        pathname: "/api/market/quote",
+        pathname: "/api/health",
         method: "GET",
         identifier: ip,
         nowMs: 0,
@@ -28,7 +28,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
       expect(r.kind).toBe("allowed");
     }
     const denied = checkRateLimit({
-      pathname: "/api/market/quote",
+      pathname: "/api/health",
       method: "GET",
       identifier: ip,
       nowMs: 0,
@@ -43,7 +43,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
   it("twee verschillende IPs delen geen bucket", () => {
     for (let i = 0; i < 20; i++) {
       checkRateLimit({
-        pathname: "/api/market/quote",
+        pathname: "/api/health",
         method: "GET",
         identifier: "1.1.1.1",
         nowMs: 0,
@@ -51,7 +51,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
     }
     // 1.1.1.1 zit nu droog, maar 2.2.2.2 begint vers.
     const r = checkRateLimit({
-      pathname: "/api/market/quote",
+      pathname: "/api/health",
       method: "GET",
       identifier: "2.2.2.2",
       nowMs: 0,
@@ -85,7 +85,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
     // Drain default-api
     for (let i = 0; i < 20; i++) {
       checkRateLimit({
-        pathname: "/api/market/quote",
+        pathname: "/api/health",
         method: "GET",
         identifier: ip,
         nowMs: 0,
@@ -134,7 +134,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
     const ip = "1.2.3.4";
     for (let i = 0; i < 20; i++) {
       checkRateLimit({
-        pathname: "/api/market/quote",
+        pathname: "/api/health",
         method: "GET",
         identifier: ip,
         nowMs: 0,
@@ -142,7 +142,7 @@ describe("checkRateLimit — integratie via store + policy", () => {
     }
     // 60s later — 10 nieuwe tokens beschikbaar.
     const r = checkRateLimit({
-      pathname: "/api/market/quote",
+      pathname: "/api/health",
       method: "GET",
       identifier: ip,
       nowMs: 60_000,

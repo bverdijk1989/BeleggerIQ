@@ -1,8 +1,44 @@
-# Security, Privacy & Compliance Review — Module 15
+# Security, Privacy & Compliance Review — Module 16
 
 Volledige hardening-pas over auth, authorisatie, sessiebeheer, input-validatie, secrets, logging, rate-limiting, API-security, DB-toegang, privacy by design, AI-prompt/data-leakage, export-risico's, error-handling en audit-logging. Dit document is de bron-van-waarheid voor wat is afgehandeld, wat nog open staat, en wat aanbevolen is voor productie.
 
 > **Scope**: één-shot review op de hoofdbranch. Niet vervangend voor pen-test, maar dekt wel de OWASP-top-10 op codebase-niveau en zet het fundament voor herhaalbare audits.
+
+---
+
+## 0. Module 16-spec mapping — 15 controles
+
+| # | Spec | Status | Locatie |
+|---|---|---|---|
+| 1 | Authenticatie | ✅ Sterk | Magic-link (32-byte tokens, single-use, SHA-256), Google OAuth, password-bcrypt (`src/lib/auth/`) |
+| 2 | Autorisatie | ✅ Sterk | Repository-laag `userId`-scoped; `matchesSessionUser`; Module 14 OrgRole + `hasPermission()`; Module 15 admin-guard |
+| 3 | Sessiebeheer | ⚠️ Sliding-refresh ontbreekt | HMAC-SHA256 cookies, `httpOnly`, `sameSite=lax`, `secure` in prod, 7d maxAge; zie §4.4 |
+| 4 | API-validatie | ⚠️ Zod-migratie deels | Server-actions hebben typed-interfaces; runtime-checks handmatig per veld; zie §4.5 |
+| 5 | Rate limiting | ✅ Token-bucket | `/api/chat`, `/login`, `/api/snapshots/factors`, `/api/ai/*` (STRICT_AI, §3.6), `/api/market/*` (Module 16, §3.10) |
+| 6 | Secrets management | ✅ Fail-fast | `validateEnv` + `assertEnvOrExit` (§3.4); `BIQ_SESSION_SECRET` ≥32, `BIQ_ALLOW_DEMO_AUTH=false` in prod |
+| 7 | Logging zonder PII | ✅ Veld + value | `redactDeep` (§3.3) — emails, IPv4/6, Bearer-tokens, long-tokens; veld-naam-scrub bij `log.error` |
+| 8 | AI prompt/data leakage | ✅ Strict-mode | `ensureNoPIIInPrompt` + `AIPromptPIIError` (§3.7); banned-phrases + hedged-language + numeric-claim-validator |
+| 9 | Export/delete flows | ⚠️ Partial | `/api/user/export` + `/api/user/delete` bestaan; AVG-export-flow needs legal review |
+| 10 | Prisma query safety | ✅ Parameterized | Geen `$queryRaw`/`$executeRaw` in app-code; alle queries via Prisma-client |
+| 11 | Dependency risico's | ⚠️ Manueel | `npm audit` toont 1 moderate + 1 high; geen Dependabot/Renovate; zie §5.4 |
+| 12 | Error handling | ✅ Sanitized | `sanitizeActionError` (§3.1); server-side log behoudt `rawMessage`, client krijgt generieke melding |
+| 13 | Admin routes | ✅ Env-allowlist | Module 15 `BIQ_ADMIN_EMAILS`-allowlist + `notFound()` voor non-admin + audit-trail per page-view |
+| 14 | Subscription bypass | ✅ Entitlement-tests | Module 13 spec-conformance bevries tier-matrix; FREE krijgt geen PRO/ELITE features (21 bypass-tests) |
+| 15 | Compliance-disclaimers | ⚠️ Juridisch review nodig | Module 14 `DISCLAIMER_CATALOG` (advisor.report, white_label.footer, AFM-NL); zie §5.3 |
+
+**Legenda**: ✅ = adequaat afgedekt · ⚠️ = aanwezig maar verbeterruimte · ❌ = ontbreekt
+
+---
+
+## 0b. Wettelijk te reviewen (NIET juridisch goedgekeurd)
+
+De volgende elementen zijn door BeleggerIQ-engineering opgesteld op basis van best-practices en publieke richtlijnen, maar zijn **niet door een advocaat / AFM-specialist gereviewed**. Vóór commerciële launch nodig:
+
+1. **AVG/GDPR-compliance**: privacy-policy + cookie-banner + data-export/delete-flow eindredactie + DPIA-check (vermogensdata = mogelijk persoonsgegevens van bijzondere categorie).
+2. **Disclaimer-set**: `DISCLAIMER_CATALOG` is een starter-pack. AFM-conforme tekst voor advisor.report en algemene "geen beleggingsadvies"-claim moeten door financieel-juridisch-specialist worden bevestigd.
+3. **DPA met LLM-providers**: BeleggerIQ stuurt portfolio-holdings (geen PII) naar Anthropic/OpenAI; DPA + Standard Contractual Clauses voor data-transfer buiten EU expliciet documenteren.
+4. **Cookie-banner**: huidige scope = functioneel only (sessie + rate-limit-id, geen tracking) — geen banner wettelijk verplicht, wel best-practice voor transparantie.
+5. **Voorwaarden + Privacy-statement**: huidige `/terms` en `/privacy` zijn engineering-drafts; juridisch-vorm nog niet bevestigd.
 
 ---
 

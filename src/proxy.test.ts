@@ -40,7 +40,7 @@ describe("middleware — rate-limit gedrag", () => {
 
   it("API route binnen budget → 200 + remaining-header", () => {
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote"),
+      makeRequest("http://localhost:3000/api/health"),
     );
     expect(res.status).toBe(200);
     expect(res.headers.get("x-ratelimit-policy")).toBe("default-api");
@@ -51,13 +51,13 @@ describe("middleware — rate-limit gedrag", () => {
     const ip = "10.0.0.99";
     for (let i = 0; i < 20; i++) {
       middleware(
-        makeRequest("http://localhost:3000/api/market/quote", {
+        makeRequest("http://localhost:3000/api/health", {
           headers: { "x-forwarded-for": ip },
         }),
       );
     }
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: { "x-forwarded-for": ip },
       }),
     );
@@ -72,13 +72,13 @@ describe("middleware — rate-limit gedrag", () => {
   it("verschillende IPs delen geen bucket", () => {
     for (let i = 0; i < 20; i++) {
       middleware(
-        makeRequest("http://localhost:3000/api/market/quote", {
+        makeRequest("http://localhost:3000/api/health", {
           headers: { "x-forwarded-for": "10.0.0.1" },
         }),
       );
     }
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: { "x-forwarded-for": "10.0.0.2" },
       }),
     );
@@ -137,7 +137,7 @@ describe("middleware — rate-limit gedrag", () => {
 
   it("genereert X-Request-ID en propageert 'em naar de response", () => {
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote"),
+      makeRequest("http://localhost:3000/api/health"),
     );
     const requestId = res.headers.get("x-request-id");
     expect(requestId).toMatch(/^req_[0-9a-f]{32}$/);
@@ -145,7 +145,7 @@ describe("middleware — rate-limit gedrag", () => {
 
   it("respecteert binnenkomende X-Request-ID (mits veilig formaat)", () => {
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: {
           "x-forwarded-for": "10.0.0.1",
           "x-request-id": "trace-abc-123",
@@ -157,7 +157,7 @@ describe("middleware — rate-limit gedrag", () => {
 
   it("verwerpt onveilig formaat X-Request-ID (spaces/quotes) en genereert nieuwe", () => {
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: {
           "x-forwarded-for": "10.0.0.1",
           "x-request-id": "abc def \"quoted\"",
@@ -171,13 +171,13 @@ describe("middleware — rate-limit gedrag", () => {
     const ip = "10.0.0.42";
     for (let i = 0; i < 20; i++) {
       middleware(
-        makeRequest("http://localhost:3000/api/market/quote", {
+        makeRequest("http://localhost:3000/api/health", {
           headers: { "x-forwarded-for": ip },
         }),
       );
     }
     const res = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: { "x-forwarded-for": ip },
       }),
     );
@@ -188,13 +188,13 @@ describe("middleware — rate-limit gedrag", () => {
   it("X-Real-IP wordt gebruikt als X-Forwarded-For ontbreekt", () => {
     for (let i = 0; i < 20; i++) {
       middleware(
-        makeRequest("http://localhost:3000/api/market/quote", {
+        makeRequest("http://localhost:3000/api/health", {
           headers: { "x-real-ip": "10.0.0.7" },
         }),
       );
     }
     const denied = middleware(
-      makeRequest("http://localhost:3000/api/market/quote", {
+      makeRequest("http://localhost:3000/api/health", {
         headers: { "x-real-ip": "10.0.0.7" },
       }),
     );

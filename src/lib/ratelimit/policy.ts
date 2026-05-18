@@ -62,6 +62,19 @@ const STRICT_AI: RateLimitPolicy = {
   config: { capacity: 5, refillPerSec: 5 / 60 },
 };
 
+/**
+ * /api/market/* — Yahoo / Alpha Vantage provider-quota. Module 16 (§4.3):
+ * deze endpoints zijn ongeauthenticeerd, dus een tweede defense-laag op
+ * IP-niveau voorkomt dat een derde-partij onze upstream-quota leegtrekt.
+ * Iets ruimer dan AI (markt-data is goedkoper) maar strikt genoeg om
+ * scripted-abuse te dempen.
+ */
+const STRICT_MARKET: RateLimitPolicy = {
+  name: "strict-market",
+  matches: (pathname) => pathname.startsWith("/api/market/"),
+  config: { capacity: 10, refillPerSec: 10 / 60 },
+};
+
 const STRICT_LOGIN: RateLimitPolicy = {
   name: "strict-login",
   matches: (pathname, method) => pathname === "/login" && method === "POST",
@@ -76,6 +89,7 @@ export const POLICIES: readonly RateLimitPolicy[] = [
   STRICT_CHAT,
   STRICT_FACTORS,
   STRICT_AI,
+  STRICT_MARKET,
   STRICT_LOGIN,
   DEFAULT_API,
 ];
