@@ -271,6 +271,18 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Advisor PDF report (M23) — Elite + Advisor
+  // ============================================================
+  {
+    key: "report.advisor_pdf",
+    label: "Advisor PDF-rapport",
+    description:
+      "Professioneel portefeuillecheck-rapport (10 secties — health, risico, spreiding, doelen, scenarios, behavioral, datakwaliteit, actiepunten). Print-friendly HTML met browser-naar-PDF; v2: server-side PDF-render.",
+    availableIn: ELITE_AND_UP,
+    category: "advisor",
+  },
+
+  // ============================================================
   //  Advisor / Enterprise — voorbereid
   // ============================================================
   {

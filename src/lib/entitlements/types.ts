@@ -56,6 +56,8 @@ export type FeatureKey =
   | "dividend.drip"
   // Community Intelligence (M13)
   | "community.benchmark"
+  // Advisor PDF report (M23) — Elite + Advisor
+  | "report.advisor_pdf"
   // Advisor / Enterprise (toekomst)
   | "advisor.multi_client"
   | "advisor.export_reports"
