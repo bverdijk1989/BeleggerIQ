@@ -5,10 +5,12 @@ import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
 import { PaywallCard } from "@/components/entitlements/paywall-card";
 import { ExplanationPanel } from "@/components/explainability/explanation-panel";
+import { InvestmentCaseSection } from "@/components/investment-case/case-section";
 import { ConfidenceScorecard } from "@/components/signal-fusion/confidence-scorecard";
 import { Badge } from "@/components/ui/badge";
 import { explainConfidence } from "@/lib/ai/explainability";
 import { buildPortfolioView } from "@/lib/analytics";
+import { loadInvestmentCase } from "@/lib/analytics/investment-case";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
@@ -99,6 +101,12 @@ export default async function ConfidenceDetailPage({ params }: Props) {
     ? await explainConfidence(result)
     : null;
 
+  // Module 31 — Investment Case: pure-function, geen entitlement.
+  const investmentCase = await loadInvestmentCase({
+    ticker: decoded,
+    view,
+  });
+
   return (
     <>
       <PageHeader
@@ -111,6 +119,13 @@ export default async function ConfidenceDetailPage({ params }: Props) {
           </Badge>
         }
       />
+
+      <Section
+        title="Stock Story & Investment Case"
+        description="Wat doet dit, waarom interessant, sterke punten, risico's — in eenvoudige taal."
+      >
+        <InvestmentCaseSection caseData={investmentCase} />
+      </Section>
 
       <Section
         title="Uitleg"
