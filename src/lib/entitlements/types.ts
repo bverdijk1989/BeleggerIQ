@@ -58,6 +58,8 @@ export type FeatureKey =
   | "community.benchmark"
   // Advisor PDF report (M23) — Elite + Advisor
   | "report.advisor_pdf"
+  // Signal Performance Lab (M27) — Elite + Advisor
+  | "research.signal_performance"
   // Advisor / Enterprise (toekomst)
   | "advisor.multi_client"
   | "advisor.export_reports"

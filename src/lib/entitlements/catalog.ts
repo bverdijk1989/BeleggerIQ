@@ -271,6 +271,18 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Signal Performance Lab (M27) — Elite + Advisor
+  // ============================================================
+  {
+    key: "research.signal_performance",
+    label: "Signal Performance Lab",
+    description:
+      "Research-grade backtest per signaal-component (quality/valuation/momentum/volatility/macrofit/portfoliofit) — per-horizon hit-rate, decay-analyse, regime-breakdown en CSV-export. Voor Elite + Advisor.",
+    availableIn: ELITE_AND_UP,
+    category: "analytics",
+  },
+
+  // ============================================================
   //  Advisor PDF report (M23) — Elite + Advisor
   // ============================================================
   {
