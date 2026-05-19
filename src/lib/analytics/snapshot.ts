@@ -6,6 +6,7 @@ import type {
 } from "@/types/regime";
 
 import type { PortfolioView } from "./portfolio-view";
+import { buildRiskTrendSnapshot } from "./risk-trend/snapshot-builder";
 
 /**
  * Snapshot-data builders. Pure functies die engine-outputs omzetten naar
@@ -60,6 +61,45 @@ export interface PortfolioSnapshotMetrics {
   regimeScore: number | null;
   planDeployed: number | null;
   planRecommendations: number | null;
+  /**
+   * Module 30 — Risk Trend & Snapshot History.
+   * Compact, geaggregeerd: alleen scores 0..100 en fracties, geen
+   * ruwe holdings/PII. Optioneel: niet aanwezig in oude snapshots.
+   */
+  riskTrend?: RiskTrendSnapshot;
+}
+
+/**
+ * Module 30 — gestandaardiseerde compact-snapshot voor trend-tracking.
+ * Alle velden 0..100 of fractie; geen tickers, geen bedragen.
+ */
+export interface RiskTrendSnapshot {
+  /** Schema-version — bump bij breaking change. */
+  schemaVersion: 1;
+  /** Health-score 0..100 (uit view.health). */
+  healthScore: number | null;
+  /** Risk-score 0..100 (uit view.risk.riskScore — hoger = meer risico). */
+  riskScore: number | null;
+  /** Concentratie HHI 0..1. */
+  concentrationHhi: number | null;
+  /** Grootste positie-gewicht 0..1. */
+  largestPositionWeight: number | null;
+  /** Top-5 weight 0..1. */
+  top5Weight: number | null;
+  /** Sector HHI 0..1. */
+  sectorHhi: number | null;
+  /** Geannualizeerde vola fractie. */
+  volatility: number | null;
+  /** Max drawdown (negatief fractie). */
+  maxDrawdown: number | null;
+  /** Vreemde-valuta-exposure 0..1. */
+  foreignCurrencyExposure: number | null;
+  /** Data-depth 0..100 (M26). */
+  dataDepthScore: number | null;
+  /** Drift: gemiddelde |currentWeight - targetWeight| over rebalance-recommendations. */
+  driftAvg: number | null;
+  /** Aantal posities. */
+  positionCount: number;
 }
 
 export interface BuildPortfolioSnapshotInput {
@@ -115,6 +155,8 @@ export function buildPortfolioSnapshotData(
     regimeScore: regime?.score ?? null,
     planDeployed: plan?.deployedAmount ?? null,
     planRecommendations: plan?.recommendations.length ?? null,
+    // Module 30 — compact trend-snapshot (≤200 bytes JSON).
+    riskTrend: buildRiskTrendSnapshot({ view }),
   };
 
   return {
