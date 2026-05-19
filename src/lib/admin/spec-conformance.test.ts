@@ -45,6 +45,10 @@ describe("Module 15 — admin dashboard shape (10 cards)", () => {
         marketDataLastError: null,
         aiLastError: null,
       },
+      providerHealthDetail: {
+        windowStart: "2026-05-18T00:00:00.000Z",
+        rows: [],
+      },
       aiCost: {
         windowStart: "2026-05-18T00:00:00.000Z",
         totalCalls: 0,

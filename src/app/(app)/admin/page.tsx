@@ -148,6 +148,14 @@ export default async function AdminConsolePage({ searchParams }: Props) {
         </div>
       </Section>
 
+      {/* 4b. Provider health detail (Module 26) */}
+      <Section
+        title="Provider health-detail"
+        description="Live metrics per provider — success/failure-count, latency, fallback-invocations. Reset bij process-restart."
+      >
+        <ProviderHealthDetail detail={data.providerHealthDetail} />
+      </Section>
+
       {/* 5. AI cost */}
       <Section
         title="AI-kosten & gebruik"
@@ -378,6 +386,88 @@ function ProviderCard({
         </Badge>
       </div>
       <p className="mt-1 font-mono text-xs text-muted-foreground">{provider}</p>
+    </div>
+  );
+}
+
+function ProviderHealthDetail({
+  detail,
+}: {
+  detail: AdminDashboardData["providerHealthDetail"];
+}) {
+  if (detail.rows.length === 0) {
+    return (
+      <div className="rounded-md border border-border/40 bg-muted/10 p-3 text-xs text-muted-foreground">
+        <p>
+          Nog geen call-events gemeten sinds laatste process-start. Provider
+          metrics worden in-memory bijgehouden — een herstart wist de tellers.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-md border border-border/40 bg-surface/40">
+      <table className="w-full text-left text-[11px]">
+        <thead className="bg-muted/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+          <tr>
+            <th className="px-2 py-1.5">Provider</th>
+            <th className="px-2 py-1.5">Calls</th>
+            <th className="px-2 py-1.5">Success</th>
+            <th className="px-2 py-1.5">Fail</th>
+            <th className="px-2 py-1.5">Fallback</th>
+            <th className="px-2 py-1.5">Avg ms</th>
+            <th className="px-2 py-1.5">p50</th>
+            <th className="px-2 py-1.5">p95</th>
+            <th className="px-2 py-1.5">Status</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono">
+          {detail.rows.map((row) => (
+            <tr key={row.provider} className="border-t border-border/30">
+              <td className="px-2 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-foreground">
+                    {row.provider}
+                  </span>
+                  <span className="text-[9px] uppercase text-muted-foreground">
+                    {row.kind}
+                  </span>
+                </div>
+                {row.lastError ? (
+                  <p className="mt-0.5 text-[10px] text-amber-300">
+                    {row.lastError}
+                  </p>
+                ) : null}
+              </td>
+              <td className="px-2 py-1.5">{row.callCount}</td>
+              <td className="px-2 py-1.5 text-emerald-200">
+                {row.successCount}
+              </td>
+              <td className="px-2 py-1.5 text-rose-200">{row.failureCount}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">
+                {row.fallbackInvocationCount}
+              </td>
+              <td className="px-2 py-1.5">{row.avgLatencyMs ?? "—"}</td>
+              <td className="px-2 py-1.5">{row.latencyP50Ms ?? "—"}</td>
+              <td className="px-2 py-1.5">{row.latencyP95Ms ?? "—"}</td>
+              <td className="px-2 py-1.5">
+                <Badge
+                  variant="outline"
+                  className={
+                    row.stale
+                      ? "border-muted-foreground/30 text-muted-foreground"
+                      : row.healthy
+                        ? "border-emerald-500/40 text-emerald-300"
+                        : "border-rose-500/40 text-rose-300"
+                  }
+                >
+                  {row.stale ? "stale" : row.healthy ? "healthy" : "fail"}
+                </Badge>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -60,6 +60,31 @@ export interface ProviderHealthSummary {
   aiLastError: string | null;
 }
 
+/** Detail-row per provider (Module 26). */
+export interface ProviderHealthDetailRow {
+  provider: string;
+  kind: "market-data" | "ai" | "macro" | "fundamentals";
+  callCount: number;
+  successCount: number;
+  failureCount: number;
+  /** Aantal calls dat via fallback-chain ging. */
+  fallbackInvocationCount: number;
+  /** Geaggregeerde latency-tellers in ms. */
+  avgLatencyMs: number | null;
+  latencyP50Ms: number | null;
+  latencyP95Ms: number | null;
+  lastSuccessAt: ISODateString | null;
+  lastFailureAt: ISODateString | null;
+  lastError: string | null;
+  healthy: boolean;
+  stale: boolean;
+}
+
+export interface ProviderHealthDetailSummary {
+  windowStart: ISODateString;
+  rows: ReadonlyArray<ProviderHealthDetailRow>;
+}
+
 /** Sub-card: AI-kosten + gebruik. */
 export interface AiCostSummary {
   windowStart: ISODateString;
@@ -146,6 +171,8 @@ export interface AdminDashboardData {
   subscriptions: SubscriptionSummary;
   featureFlags: ReadonlyArray<FeatureFlagStatus>;
   providers: ProviderHealthSummary;
+  /** Detailed per-provider health (Module 26). */
+  providerHealthDetail: ProviderHealthDetailSummary;
   aiCost: AiCostSummary;
   errors: ErrorLogSummary;
   imports: ImportStatusSummary;

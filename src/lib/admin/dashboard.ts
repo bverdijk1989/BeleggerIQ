@@ -12,6 +12,7 @@ import { ENTERPRISE_FLAG_LABELS, DEFAULT_ENTERPRISE_FLAGS } from "@/lib/enterpri
 import { isEnterpriseFlagEnabled } from "@/lib/enterprise/feature-flags";
 import { FEATURE_CATALOG } from "@/lib/entitlements/catalog";
 import { snapshotCostMeter } from "@/lib/perf/cost-meter";
+import { snapshotProviderHealth } from "@/lib/provider-health";
 import type { BillingTier } from "@/types/profile";
 
 import { maskEmail } from "./guards";
@@ -23,6 +24,7 @@ import type {
   FailedJobsSummary,
   FeatureFlagStatus,
   ImportStatusSummary,
+  ProviderHealthDetailSummary,
   ProviderHealthSummary,
   SecurityEventsSummary,
   SubscriptionSummary,
@@ -69,6 +71,7 @@ export async function loadAdminDashboard(
     subscriptions,
     featureFlags: loadFeatureFlagStatus(),
     providers: loadProviderHealth(),
+    providerHealthDetail: loadProviderHealthDetail(),
     aiCost: loadAiCost(),
     errors,
     imports,
@@ -76,6 +79,37 @@ export async function loadAdminDashboard(
     security,
     support,
   };
+}
+
+/**
+ * Module 26 — detailed per-provider health stats voor admin-UI.
+ * Faal-safe: returnt lege rows wanneer store leeg is.
+ */
+function loadProviderHealthDetail(): ProviderHealthDetailSummary {
+  try {
+    const snap = snapshotProviderHealth();
+    return {
+      windowStart: snap.windowStart,
+      rows: snap.byProvider.map((p) => ({
+        provider: p.provider,
+        kind: p.kind,
+        callCount: p.callCount,
+        successCount: p.successCount,
+        failureCount: p.failureCount,
+        fallbackInvocationCount: p.fallbackInvocationCount,
+        avgLatencyMs: p.avgLatencyMs,
+        latencyP50Ms: p.latencyP50Ms,
+        latencyP95Ms: p.latencyP95Ms,
+        lastSuccessAt: p.lastSuccessAt,
+        lastFailureAt: p.lastFailureAt,
+        lastError: p.lastError,
+        healthy: p.healthy,
+        stale: p.stale,
+      })),
+    };
+  } catch {
+    return { windowStart: new Date().toISOString(), rows: [] };
+  }
 }
 
 // ============================================================

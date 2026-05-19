@@ -1,13 +1,16 @@
 import { Briefcase, ShieldAlert, Upload } from "lucide-react";
 
+import { DataDepthBanner } from "@/components/common/data-depth-banner";
 import { DataQualityPanel } from "@/components/common/data-quality-panel";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Section } from "@/components/common/section";
 import { buildPortfolioView } from "@/lib/analytics";
+import { buildPortfolioDepth } from "@/lib/analytics/data-depth/loader";
 import { assessPortfolioQuality } from "@/lib/analytics/data-quality";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import { getFundamentals } from "@/lib/data/fundamentals";
 import { enrichInstruments } from "@/lib/data/instrument-enrichment";
 
 import { buildHoldingRows } from "./build-rows";
@@ -56,6 +59,25 @@ export default async function PortfolioPage() {
 
   const rows = buildHoldingRows(view.summary, view.valuations);
   const updatedAt = new Date(view.lastUpdated).toLocaleString("nl-NL");
+
+  // Module 26 — Data-Depth: meet fundamentals/dividend/macro/history-coverage
+  // bovenop bestaande metadata-quality. Faal-safe per-ticker fundamentals-fetch.
+  const fundamentalsByTicker = new Map(
+    await Promise.all(
+      view.valuations.map(async (v) => {
+        try {
+          return [v.holding.ticker, await getFundamentals(v.holding.ticker)] as const;
+        } catch {
+          return [v.holding.ticker, null] as const;
+        }
+      }),
+    ),
+  );
+  const dataDepth = buildPortfolioDepth({
+    view,
+    fundamentalsByTicker,
+    hasMacroRegime: true,
+  });
 
   // Data-quality pipeline (server-side, businesslogica uit UI):
   //  1. Enrich elk instrument via Yahoo assetProfile.
@@ -127,12 +149,21 @@ export default async function PortfolioPage() {
       </Section>
 
       {rows.length > 0 && (
-        <Section
-          title="Data-kwaliteit"
-          description="Hoeveel van je posities hebben complete sector-, regio- en asset-class data. Lage confidence betekent: het signaal is er, maar bouwt op onvolledige input."
-        >
-          <DataQualityPanel report={qualityReport} />
-        </Section>
+        <>
+          <Section
+            title="Datadekking"
+            description="Hoe volledig is de data achter elk signaal? Lagere dekking = scores en signalen blijven indicatief."
+          >
+            <DataDepthBanner coverage={dataDepth.portfolio} />
+          </Section>
+
+          <Section
+            title="Metadata-kwaliteit"
+            description="Hoeveel van je posities hebben complete sector-, regio- en asset-class data. Lage confidence betekent: het signaal is er, maar bouwt op onvolledige input."
+          >
+            <DataQualityPanel report={qualityReport} />
+          </Section>
+        </>
       )}
 
       <Section title="Legenda" description="Zo lees je de scores en acties.">
