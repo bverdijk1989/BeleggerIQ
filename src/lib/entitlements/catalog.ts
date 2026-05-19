@@ -283,6 +283,18 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureDefinition> = [
   },
 
   // ============================================================
+  //  Cross-Asset Correlation Studio (M28) — Elite + Advisor
+  // ============================================================
+  {
+    key: "research.correlations",
+    label: "Cross-Asset Correlation Studio",
+    description:
+      "Geavanceerde correlatie-matrix tussen jouw posities en brede indices (S&P, MSCI World, All-World) — diversification-score + concentratie- en hedge-inzichten + CSV-export. Voor Elite + Advisor.",
+    availableIn: ELITE_AND_UP,
+    category: "analytics",
+  },
+
+  // ============================================================
   //  Advisor PDF report (M23) — Elite + Advisor
   // ============================================================
   {

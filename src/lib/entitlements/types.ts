@@ -60,6 +60,8 @@ export type FeatureKey =
   | "report.advisor_pdf"
   // Signal Performance Lab (M27) — Elite + Advisor
   | "research.signal_performance"
+  // Cross-Asset Correlation Studio (M28) — Elite + Advisor
+  | "research.correlations"
   // Advisor / Enterprise (toekomst)
   | "advisor.multi_client"
   | "advisor.export_reports"
