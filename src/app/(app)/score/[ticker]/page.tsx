@@ -11,9 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { explainConfidence } from "@/lib/ai/explainability";
 import { buildPortfolioView } from "@/lib/analytics";
 import { loadInvestmentCase } from "@/lib/analytics/investment-case";
+import { buildMoatReport } from "@/lib/analytics/moat-owner-earnings";
 import { loadConfidenceScore } from "@/lib/analytics/signal-fusion";
+import { MoatCard } from "@/components/moat/moat-card";
 import { resolveUserFromServer } from "@/lib/auth";
 import { portfolioRepository } from "@/lib/data";
+import { getFundamentals } from "@/lib/data/fundamentals";
 import {
   canUseFeature,
   getFeature,
@@ -107,6 +110,14 @@ export default async function ConfidenceDetailPage({ params }: Props) {
     view,
   });
 
+  // Module 32 — Moat & Owner Earnings: pure-function over fundamentals.
+  const fundamentalsForMoat = await getFundamentals(decoded).catch(() => null);
+  const moatReport = buildMoatReport({
+    ticker: decoded,
+    asOf: new Date().toISOString(),
+    fundamentals: fundamentalsForMoat,
+  });
+
   return (
     <>
       <PageHeader
@@ -125,6 +136,13 @@ export default async function ConfidenceDetailPage({ params }: Props) {
         description="Wat doet dit, waarom interessant, sterke punten, risico's — in eenvoudige taal."
       >
         <InvestmentCaseSection caseData={investmentCase} />
+      </Section>
+
+      <Section
+        title="Moat & Owner Earnings"
+        description="Buffett-perspectief: kwaliteit voor langetermijnbezit. 10 kwaliteits-componenten met confidence en conservatieve defaults."
+      >
+        <MoatCard report={moatReport} />
       </Section>
 
       <Section
