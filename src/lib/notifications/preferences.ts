@@ -13,12 +13,26 @@ export interface NotificationPreferences {
   instantCriticalAlerts: boolean;
   /** Watchlist target-zone-reached / valuation-band-reached. */
   watchlistAlerts: boolean;
+  /**
+   * Module 34 — Monthly Investor Review per e-mail. Default aan voor
+   * onboarding-retentie; uitschrijfbaar via preference-settings of
+   * unsubscribe-link.
+   */
+  monthlyReview: boolean;
+  /**
+   * Module 34 — privacy opt-in. Default UIT: e-mail toont alleen
+   * privacy-veilige samenvattingen (grades, deltas, kwalitatieve labels).
+   * Wanneer expliciet AAN: e-mail mag ook bedragen en exacte cijfers tonen.
+   */
+  monthlyReviewDetailedFigures: boolean;
 }
 
 export const DEFAULT_PREFERENCES: NotificationPreferences = {
   weeklyDigest: true,
   instantCriticalAlerts: true,
   watchlistAlerts: true,
+  monthlyReview: true,
+  monthlyReviewDetailedFigures: false,
 };
 
 /**
@@ -44,6 +58,14 @@ export function parsePreferences(
       typeof obj.watchlistAlerts === "boolean"
         ? obj.watchlistAlerts
         : DEFAULT_PREFERENCES.watchlistAlerts,
+    monthlyReview:
+      typeof obj.monthlyReview === "boolean"
+        ? obj.monthlyReview
+        : DEFAULT_PREFERENCES.monthlyReview,
+    monthlyReviewDetailedFigures:
+      typeof obj.monthlyReviewDetailedFigures === "boolean"
+        ? obj.monthlyReviewDetailedFigures
+        : DEFAULT_PREFERENCES.monthlyReviewDetailedFigures,
   };
 }
 
@@ -52,7 +74,11 @@ export function parsePreferences(
  * user. Splitst de "preference"-laag uit van de "event-generation"-laag,
  * zodat een test alleen prefs hoeft door te geven.
  */
-export type NotificationCategory = "critical" | "watchlist" | "digest";
+export type NotificationCategory =
+  | "critical"
+  | "watchlist"
+  | "digest"
+  | "monthly_review";
 
 export function isCategoryAllowed(
   prefs: NotificationPreferences,
@@ -65,5 +91,7 @@ export function isCategoryAllowed(
       return prefs.watchlistAlerts;
     case "digest":
       return prefs.weeklyDigest;
+    case "monthly_review":
+      return prefs.monthlyReview;
   }
 }
