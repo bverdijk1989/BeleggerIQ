@@ -86,14 +86,23 @@ export interface ScanOpportunitiesInput {
   config?: {
     minSignalStrength?: number;
     maxCandidates?: number;
+    /**
+     * Override "nu" — ISO-timestamp. Maakt de scan volledig
+     * reproduceerbaar (deterministisch) zodat dezelfde input altijd
+     * dezelfde output geeft, incl. `scannedAt` en `signal.detectedAt`.
+     * Default: `new Date().toISOString()`.
+     */
+    now?: string;
   };
 }
 
 export function scanOpportunities(
   input: ScanOpportunitiesInput,
 ): OpportunityReport {
-  const scannedAt = new Date().toISOString();
   const config = input.config ?? {};
+  // Eén consistente timestamp voor de hele scan — `config.now` maakt 'em
+  // injecteerbaar zodat de engine echt deterministisch is (Simons-laag).
+  const scannedAt = config.now ?? new Date().toISOString();
   const minSignalStrength = config.minSignalStrength ?? 40;
   const maxCandidates = config.maxCandidates ?? 20;
 
@@ -282,6 +291,17 @@ export function scanOpportunities(
     return a.ticker.localeCompare(b.ticker);
   });
   const topCandidates = candidates.slice(0, maxCandidates);
+
+  // Normaliseer elk `signal.detectedAt` naar de ene scan-timestamp.
+  // De per-signal builders gebruiken `new Date()` intern; dat maakte
+  // twee identieke scans non-deterministisch. Eén consistente waarde
+  // garandeert reproduceerbaarheid (Simons-laag) zonder de 7 signal-
+  // builders te hoeven herschrijven.
+  for (const c of topCandidates) {
+    for (const s of c.signals) {
+      s.detectedAt = scannedAt;
+    }
+  }
 
   // Signaal-distributie over de *uiteindelijk getoonde* kandidaten.
   const distribution: Record<OpportunitySignalType, number> = {

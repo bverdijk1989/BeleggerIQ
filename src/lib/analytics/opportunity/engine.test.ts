@@ -182,6 +182,8 @@ describe("scanOpportunityRadar — adapter", () => {
     const hist = priceHistory(252, (i) =>
       i < 189 ? 100 : 100 - ((i - 189) / 63) * 20,
     );
+    // `config.now` maakt de scan volledig deterministisch — zonder die
+    // override zou `detectedAt` per call uit `new Date()` komen.
     const input = {
       portfolio: [
         {
@@ -191,11 +193,15 @@ describe("scanOpportunityRadar — adapter", () => {
           priceHistory: hist,
         },
       ],
+      config: { now: NOW },
     };
     const a = scanOpportunityRadar(input);
     const b = scanOpportunityRadar(input);
     expect(a.results).toEqual(b.results);
     expect(a.countByType).toEqual(b.countByType);
+    // Determinisme strekt zich uit tot de timestamps.
+    expect(a.generatedAt).toBe(NOW);
+    expect(a.results[0]?.detectedAt).toBe(NOW);
   });
 
   it("expected horizon is consistent met type", () => {
